@@ -1,0 +1,66 @@
+# Backup Agent
+
+Backup Agent is a bootstrap skeleton for a containerized backup service that will later support PostgreSQL and MariaDB backups with rsync-based remote synchronization.
+
+## Current status
+
+This repository currently contains the project skeleton only:
+
+- application entrypoint
+- package metadata
+- domain model placeholders
+- service/provider interfaces
+- infrastructure placeholders
+- a smoke test
+
+No backups are executed yet.
+
+## Project structure
+
+```text
+src/
+  backup_agent/
+    app/
+    domain/
+    services/
+    providers/
+    infrastructure/
+    interfaces/
+```
+
+## Local development
+
+### 1. Create a virtual environment
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+### 2. Install the package in editable mode
+
+```bash
+python -m pip install -e .
+```
+
+### 3. Start the application
+
+```bash
+backup-agent
+```
+
+The bootstrap entrypoint only starts the application shell and exits successfully.
+
+## Test execution
+
+Run the smoke test suite with:
+
+```bash
+python -m unittest discover -s tests
+```
+
+## Configuration
+
+The future runtime configuration will be driven by environment variables described in `.pi/project.md` and `.pi/architecture.md`.
+
+The bootstrap phase intentionally keeps configuration minimal so later tasks can add validation and scheduling without restructuring the project.

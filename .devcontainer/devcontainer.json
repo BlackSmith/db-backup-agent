@@ -1,0 +1,23 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/python
+{
+	"name": "Backup agent",
+	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
+	"image": "mcr.microsoft.com/devcontainers/python:3.13",
+	"remoteUser": "vscode",
+	// "workspaceFolder": "/workspace",
+	"features": {
+		"ghcr.io/devcontainers/features/git:1": {}
+	},
+	"forwardPorts": [
+		5151
+	],
+	"postCreateCommand": ".devcontainer/post-create.sh",
+	"mounts": [
+		"source=/home/blacksmith/.pi,target=/home/vscode/.pi,type=bind",
+		"source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
+	],
+	"runArgs": [
+        "--name=devcon_${localWorkspaceFolderBasename}"
+	]
+}
