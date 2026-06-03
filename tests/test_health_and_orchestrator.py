@@ -154,13 +154,14 @@ class HealthAndOrchestratorTests(unittest.TestCase):
         self.assertNotIn("secret", output)
 
     def test_orchestrator_returns_summary_and_writes_manifest(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
+        with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as mounted_dir:
             config = AppConfig(
                 rsync_remote_host="nas.local",
                 rsync_remote_user="backup",
                 rsync_remote_password="secret",
                 backup_time=datetime.strptime("02:00", "%H:%M").time(),
                 backup_retention_days=7,
+                backup_local_storage=Path(mounted_dir),
                 local_backup_dir=Path(temp_dir),
             )
             orchestrator = BackupOrchestratorService(
@@ -179,6 +180,27 @@ class HealthAndOrchestratorTests(unittest.TestCase):
             self.assertEqual(summary.error_count, 0)
             manifest = Path(temp_dir) / "runs" / run.run_id / "manifest.json"
             self.assertTrue(manifest.exists())
+
+    def test_orchestrator_cleans_up_staging_when_no_local_storage_backend_is_configured(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = AppConfig(
+                backup_time=datetime.strptime("02:00", "%H:%M").time(),
+                backup_retention_days=7,
+                local_backup_dir=Path(temp_dir),
+            )
+            orchestrator = BackupOrchestratorService(
+                config=config,
+                discovery=FakeDiscovery(),
+                resolver=FakeResolver(),
+                database_providers=[FakeProvider()],
+                remote_storage=FakeStorage(),
+                retention=FakeRetention(),
+            )
+            run = orchestrator.run_once()
+
+            self.assertEqual(run.status, "success")
+            self.assertFalse((Path(temp_dir) / "runs").exists())
+            self.assertFalse((Path(temp_dir) / "latest").exists())
 
 
 if __name__ == "__main__":

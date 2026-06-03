@@ -68,18 +68,21 @@ python -m unittest discover -s tests
 
 Configuration is loaded from environment variables.
 
-Required variables:
+Required variables for any run:
 
-- `RSYNC_REMOTE_HOST`
-- `RSYNC_REMOTE_USER`
-- `RSYNC_REMOTE_PASSWORD`
 - `BACKUP_TIME`
 - `BACKUP_RETENTION_DAYS`
 
-Optional variables:
+Storage variables are optional individually and can be combined:
 
 - `BACKUP_LOCAL_STORAGE`
+- `RSYNC_REMOTE_HOST`
+- `RSYNC_REMOTE_USER`
+- `RSYNC_REMOTE_PASSWORD`
 - `RSYNC_REMOTE_PATH`
+
+Other optional variables:
+
 - `LOCAL_BACKUP_DIR`
 - `TZ`
 - `LOG_LEVEL`
@@ -108,14 +111,14 @@ The container needs:
 - `/backup:/backup` as a writable local staging volume
 - network access to the database containers on the same Docker network
 
-### Required environment variables in containers
+### Runtime environment variables in containers
 
 Agent runtime variables:
 
-- `BACKUP_LOCAL_STORAGE` (optional; use a mounted local directory instead of rsync)
-- `RSYNC_REMOTE_HOST`
-- `RSYNC_REMOTE_USER`
-- `RSYNC_REMOTE_PASSWORD`
+- `BACKUP_LOCAL_STORAGE` (optional; mounted local storage backend)
+- `RSYNC_REMOTE_HOST` (optional unless you want NAS upload)
+- `RSYNC_REMOTE_USER` (optional unless you want NAS upload)
+- `RSYNC_REMOTE_PASSWORD` (optional unless you want NAS upload)
 - `BACKUP_TIME`
 - `BACKUP_RETENTION_DAYS`
 - `RSYNC_REMOTE_PATH` (optional)
@@ -124,7 +127,7 @@ Agent runtime variables:
 - `LOG_LEVEL` (optional)
 - `DOCKER_SOCKET_PATH=/var/run/docker.sock`
 
-If `BACKUP_LOCAL_STORAGE` is set, the agent uses the mounted local storage backend and the rsync credentials are no longer required.
+You can configure mounted local storage, rsync upload, or both. If `BACKUP_LOCAL_STORAGE` is set, the rsync credentials are not required unless you also want NAS publishing.
 
 ### Build the image
 

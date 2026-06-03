@@ -99,7 +99,7 @@ class BackupOrchestratorService:
                 remote_destination=sync_result.remote_destination,
             )
             if not sync_result.succeeded:
-                run.status = STATUS_SYNC_FAILED
+                run.status = STATUS_PARTIAL if sync_result.status == "partial" else STATUS_SYNC_FAILED
                 run.errors.append(
                     BackupRunError(
                         source="sync",
@@ -114,38 +114,52 @@ class BackupOrchestratorService:
 
             log_event(self.logger, "retention_start", run_id=run.run_id, retention_days=self.config.backup_retention_days)
             remote_cleanup = self.remote_storage.cleanup(layout.runs_root, self.config.backup_retention_days)
-            local_cleanup = self.retention.cleanup(layout.runs_root, self.config.backup_retention_days)
+            local_status = "skipped"
+            removed_local_runs = 0
+            if remote_cleanup.succeeded and not run.errors:
+                if self.config.uses_local_storage:
+                    local_cleanup = self.retention.cleanup(layout.runs_root, self.config.backup_retention_days)
+                    local_status = local_cleanup.status
+                    removed_local_runs = len(local_cleanup.removed_run_dirs)
+                    if local_cleanup.errors:
+                        run.errors.append(
+                            BackupRunError(
+                                source="local_retention",
+                                message="; ".join(local_cleanup.errors),
+                            )
+                        )
+                else:
+                    local_status = "success"
             log_event(
                 self.logger,
                 "retention_finish",
                 run_id=run.run_id,
                 remote_status=remote_cleanup.status,
-                local_status=local_cleanup.status,
-                removed_local_runs=len(local_cleanup.removed_run_dirs),
+                local_status=local_status,
+                removed_local_runs=removed_local_runs,
             )
-            if remote_cleanup.succeeded and local_cleanup.succeeded and not run.errors:
+            if remote_cleanup.error:
+                run.errors.append(
+                    BackupRunError(
+                        source="remote_retention",
+                        message=remote_cleanup.error.message,
+                        command=list(remote_cleanup.command),
+                        returncode=remote_cleanup.returncode,
+                        stderr=remote_cleanup.stderr,
+                    )
+                )
+
+            if remote_cleanup.succeeded and not run.errors and local_status == "success":
                 run.status = STATUS_SUCCESS
             else:
                 run.status = STATUS_PARTIAL
-                if remote_cleanup.error:
-                    run.errors.append(
-                        BackupRunError(
-                            source="remote_retention",
-                            message=remote_cleanup.error.message,
-                            command=list(remote_cleanup.command),
-                            returncode=remote_cleanup.returncode,
-                            stderr=remote_cleanup.stderr,
-                        )
-                    )
-                if local_cleanup.errors:
-                    run.errors.append(
-                        BackupRunError(
-                            source="local_retention",
-                            message="; ".join(local_cleanup.errors),
-                        )
-                    )
 
             self._finish_run(run, layout)
+            if not self.config.uses_local_storage and run.status == STATUS_SUCCESS:
+                try:
+                    self.staging.cleanup_run_tree(layout)
+                except OSError as exc:
+                    self.logger.warning("Failed to clean up local staging for run_id=%s: %s", run.run_id, exc)
             return run
         except DiscoveryError as exc:
             run.status = STATUS_FAILED

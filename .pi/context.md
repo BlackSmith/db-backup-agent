@@ -41,7 +41,7 @@ Primary runtime modules now live under `src/backup_agent/`:
 - Logs use stable `key=value` event formatting with secret masking.
 - Health checks are deterministic and do not trigger backup side effects.
 - The container image installs the external tools needed by the providers: `pg_dump`, `pg_dumpall`, `mariadb-dump`, and `rsync`.
-- Storage backend selection is configuration-driven: `BACKUP_LOCAL_STORAGE` selects mounted local directory publishing; otherwise rsync remains the default backend.
+- Storage backend selection is configuration-driven: mounted local directory publishing and rsync are independent backends that can be enabled separately or together.
 
 ## Delivered task trail
 
@@ -57,6 +57,7 @@ Implementation notes for each task were written to:
 - `.pi/done/08-containerization-and-example-deployment.md`
 - `.pi/done/10-github-actions-ci-release.md`
 - `.pi/done/11-local-mounted-storage-provider.md`
+- `.pi/done/12-storage-backend-selection-and-staging-cleanup.md`
 
 ## Known trade-offs / follow-up candidates
 

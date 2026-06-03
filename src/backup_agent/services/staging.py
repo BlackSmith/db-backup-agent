@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -54,6 +55,17 @@ class LocalStagingManager:
         return run_dir / safe_name(target.db_type.lower(), target.db_type.lower()) / safe_name(
             target.container_name, target.container_id
         )
+
+    def cleanup_run_tree(self, layout: RunLayout) -> None:
+        """Remove the staged run tree after a successful publish."""
+
+        try:
+            if layout.latest_path.exists() or layout.latest_path.is_symlink():
+                layout.latest_path.unlink()
+        except OSError:
+            pass
+
+        shutil.rmtree(layout.runs_root)
 
     def _update_latest(self, layout: RunLayout) -> None:
         """Maintain a latest pointer when the filesystem allows it."""

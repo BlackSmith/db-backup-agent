@@ -123,16 +123,18 @@ If stricter isolation is required later, discovery can be replaced by:
 
 Loads and validates global configuration from environment variables:
 
+- `BACKUP_LOCAL_STORAGE`
 - `RSYNC_REMOTE_HOST`
 - `RSYNC_REMOTE_USER`
 - `RSYNC_REMOTE_PASSWORD`
 - `BACKUP_TIME`
 - `BACKUP_RETENTION_DAYS`
 
+Storage backends may be configured independently or together.
+
 Recommended extensions:
 
 - `RSYNC_REMOTE_PATH`
-- `BACKUP_LOCAL_STORAGE`
 - `LOCAL_BACKUP_DIR=/backup`
 - `TZ=Europe/Prague`
 - `LOG_LEVEL=info`
@@ -142,7 +144,7 @@ Validation rules:
 
 - `BACKUP_TIME` must be in `HH:MM`
 - `BACKUP_RETENTION_DAYS >= 1`
-- remote sync credentials must be present
+- remote sync credentials must be present when rsync publishing is enabled
 - local backup directory must exist or be creatable
 
 ### 5.2 Scheduler
@@ -333,8 +335,10 @@ Recommended `manifest.json` fields:
 
 Initial implementations:
 
-- `rsync` remote storage
+- `rsync` remote storage via `RSYNC_*`
 - mounted local directory storage via `BACKUP_LOCAL_STORAGE`
+
+The backends can be enabled independently or together.
 
 Responsibilities:
 

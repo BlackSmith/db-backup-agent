@@ -15,7 +15,7 @@ class CompositeStorageProvider(RemoteStorageProvider):
     providers: list[RemoteStorageProvider] = field(default_factory=list)
 
     def sync(self, local_path: Path, remote_path: str | None = None) -> RemoteSyncResult:
-        results = [provider.sync(local_path) for provider in self.providers]
+        results = [provider.sync(local_path, remote_path) for provider in self.providers]
         return self._compose_sync_result(local_path, results)
 
     def cleanup(self, local_path: Path, retention_days: int) -> RemoteCleanupResult:
