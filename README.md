@@ -162,6 +162,39 @@ export MARIADB_ROOT_PASSWORD=change-me
 export MARIADB_PASSWORD=change-me
 ```
 
+## GitHub Actions CI and release
+
+The repository includes GitHub Actions workflows for continuous integration and releases.
+
+### CI workflow
+
+- Triggers on pull requests and pushes to `main` / `master`
+- Runs `python -m unittest discover -s tests`
+- Validates the Docker image build with `backup-agent:ci`
+
+### Release workflow
+
+- Triggers on tag pushes matching `v*` such as `v0.1.0`
+- Runs the test suite
+- Builds and pushes the Docker image to GitHub Container Registry (GHCR)
+- Creates a GitHub Release for the tag
+
+### Published image name
+
+The release workflow publishes the image to:
+
+```text
+ghcr.io/<owner>/<repo>:<tag>
+```
+
+For example, a `v0.1.0` tag produces an image such as:
+
+```text
+ghcr.io/<owner>/<repo>:v0.1.0
+```
+
+The workflow also publishes `latest` for version tags.
+
 ## Notes
 
 - The backup agent discovers only containers labeled with `backup_agent.enabled=true`.
