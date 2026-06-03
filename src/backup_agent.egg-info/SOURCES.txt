@@ -38,3 +38,4 @@ src/backup_agent/services/retention.py
 src/backup_agent/services/scheduler.py
 tests/test_bootstrap.py
 tests/test_config_and_scheduler.py
+tests/test_docker_discovery_and_metadata_resolution.py
