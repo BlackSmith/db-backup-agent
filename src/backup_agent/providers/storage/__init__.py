@@ -1,6 +1,19 @@
 """Remote storage providers."""
 
-from .base import RemoteStorageProvider
+from .base import (
+    CommandExecutor,
+    RemoteCleanupResult,
+    RemoteStorageError,
+    RemoteStorageProvider,
+    RemoteSyncResult,
+)
 from .rsync import RsyncStorageProvider
 
-__all__ = ["RemoteStorageProvider", "RsyncStorageProvider"]
+__all__ = [
+    "CommandExecutor",
+    "RemoteCleanupResult",
+    "RemoteStorageError",
+    "RemoteStorageProvider",
+    "RemoteSyncResult",
+    "RsyncStorageProvider",
+]
