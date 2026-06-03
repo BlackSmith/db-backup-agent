@@ -170,7 +170,14 @@ The repository includes GitHub Actions workflows for continuous integration and 
 
 - Triggers on pull requests and pushes to `main` / `master`
 - Runs `python -m unittest discover -s tests`
-- Validates the Docker image build with `backup-agent:ci`
+- Builds the Docker image
+- On branch pushes, publishes a `nightly` image to GHCR
+
+The nightly image is published as:
+
+```text
+ghcr.io/<owner>/<repo>:nightly
+```
 
 ### Release workflow
 

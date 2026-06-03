@@ -754,3 +754,19 @@ Characteristics:
 - synchronizes completed runs via rsync
 - executes retention only after successful sync
 - remains extensible without requiring a microservices transition
+
+## 17. Implementation Status
+
+The repository currently implements the phase-1 MVP architecture in Python 3.13.
+
+Implemented modules include:
+
+- configuration loading and scheduler bootstrap
+- Docker discovery and metadata resolution
+- PostgreSQL and MariaDB backup providers
+- local staging and JSON manifest generation
+- rsync synchronization and retention cleanup
+- structured logging, health checks, and run summaries
+- containerization and example Docker Compose deployment
+
+This means the architecture document remains valid as the target design, but the codebase has now progressed from planning into a working MVP implementation.
