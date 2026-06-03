@@ -1,0 +1,74 @@
+services:
+  backup-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: backup-agent:local
+    command: ["--schedule"]
+    restart: unless-stopped
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      TZ: ${TZ:-UTC}
+      BACKUP_TIME: ${BACKUP_TIME:-02:00}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
+      LOCAL_BACKUP_DIR: /backup
+      DOCKER_SOCKET_PATH: /var/run/docker.sock
+      RSYNC_REMOTE_HOST: ${RSYNC_REMOTE_HOST:?set RSYNC_REMOTE_HOST in your environment or .env file}
+      RSYNC_REMOTE_USER: ${RSYNC_REMOTE_USER:?set RSYNC_REMOTE_USER in your environment or .env file}
+      RSYNC_REMOTE_PASSWORD: ${RSYNC_REMOTE_PASSWORD:?set RSYNC_REMOTE_PASSWORD in your environment or .env file}
+      RSYNC_REMOTE_PATH: ${RSYNC_REMOTE_PATH:-/backups}
+    volumes:
+      - backup-data:/backup
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - backup-net
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in your environment or .env file}
+      POSTGRES_DB: ${POSTGRES_DB:-appdb}
+    labels:
+      backup_agent.enabled: "true"
+      backup_agent.type: "postgresql"
+      backup_agent.pguser: ${POSTGRES_USER:-app}
+      backup_agent.pghost: postgres
+      backup_agent.pgpassword: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in your environment or .env file}
+      backup_agent.pgport: "5432"
+      backup_agent.pgdatabase: ${POSTGRES_DB:-appdb}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - backup-net
+
+  mariadb:
+    image: mariadb:11.4
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?set MARIADB_ROOT_PASSWORD in your environment or .env file}
+      MARIADB_DATABASE: ${MARIADB_DATABASE:-appdb}
+      MARIADB_USER: ${MARIADB_USER:-app}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:?set MARIADB_PASSWORD in your environment or .env file}
+    labels:
+      backup_agent.enabled: "true"
+      backup_agent.type: "mariadb"
+      backup_agent.mariadbuser: ${MARIADB_USER:-app}
+      backup_agent.mariadbpassword: ${MARIADB_PASSWORD:?set MARIADB_PASSWORD in your environment or .env file}
+      backup_agent.mariadbhost: mariadb
+      backup_agent.mariadbport: "3306"
+      backup_agent.mariadbdatabase: ${MARIADB_DATABASE:-appdb}
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    networks:
+      - backup-net
+
+volumes:
+  backup-data:
+  postgres-data:
+  mariadb-data:
+
+networks:
+  backup-net:
+    driver: bridge
