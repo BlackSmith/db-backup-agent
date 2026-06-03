@@ -51,7 +51,28 @@ class ConfigAndSchedulerTests(unittest.TestCase):
             self.assertEqual(config.local_backup_dir, Path(temp_dir))
             self.assertEqual(config.timezone.key, "Europe/Prague")
             self.assertEqual(config.log_level, "debug")
+            self.assertFalse(config.uses_local_storage)
+            self.assertEqual(config.storage_backend, "rsync")
             self.assertTrue(Path(temp_dir).exists())
+
+    def test_load_config_allows_local_storage_without_rsync_credentials(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as mounted_dir:
+            env = {
+                "BACKUP_LOCAL_STORAGE": mounted_dir,
+                "BACKUP_TIME": "02:30",
+                "BACKUP_RETENTION_DAYS": "14",
+                "LOCAL_BACKUP_DIR": temp_dir,
+                "TZ": "UTC",
+            }
+
+            config = AppConfig.from_env(env)
+
+            self.assertEqual(config.backup_local_storage, Path(mounted_dir))
+            self.assertTrue(config.uses_local_storage)
+            self.assertEqual(config.storage_backend, "local")
+            self.assertEqual(config.rsync_remote_host, "")
+            self.assertEqual(config.rsync_remote_user, "")
+            self.assertEqual(config.rsync_remote_password, "")
 
     def test_load_config_rejects_invalid_values(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

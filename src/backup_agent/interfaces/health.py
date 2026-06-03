@@ -55,8 +55,12 @@ def check_readiness(config: AppConfig, docker_client: SupportsPing | None = None
 
     checks = [HealthCheckResult(name="configuration", healthy=True, message="validated")]
 
-    directory_check = _check_local_directory(config.local_backup_dir)
+    storage_path = config.backup_local_storage or config.local_backup_dir
+    directory_check = _check_local_directory(storage_path, "backup_storage")
     checks.append(directory_check)
+
+    staging_check = _check_local_directory(config.local_backup_dir, "local_backup_dir")
+    checks.append(staging_check)
 
     docker_check = _check_docker_client(config, docker_client)
     checks.append(docker_check)
@@ -64,23 +68,23 @@ def check_readiness(config: AppConfig, docker_client: SupportsPing | None = None
     return HealthReport(checks=checks)
 
 
-def _check_local_directory(path: Path) -> HealthCheckResult:
+def _check_local_directory(path: Path, name: str) -> HealthCheckResult:
     try:
         directory = ensure_directory(path)
         with NamedTemporaryFile("w", delete=True, dir=directory, prefix=".health-") as temp_file:
             temp_file.write("ok")
             temp_file.flush()
         return HealthCheckResult(
-            name="local_backup_dir",
+            name=name,
             healthy=True,
-            message="backup directory is writable",
+            message="directory is writable",
             details={"path": str(directory)},
         )
     except OSError as exc:
         return HealthCheckResult(
-            name="local_backup_dir",
+            name=name,
             healthy=False,
-            message=f"backup directory is not writable: {exc}",
+            message=f"directory is not writable: {exc}",
             details={"path": str(path)},
         )
 

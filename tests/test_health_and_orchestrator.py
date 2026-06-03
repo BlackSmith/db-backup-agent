@@ -136,7 +136,7 @@ class HealthAndOrchestratorTests(unittest.TestCase):
 
             report = check_readiness(config, FakeDocker())
             self.assertTrue(report.healthy)
-            self.assertEqual(len(report.checks), 3)
+            self.assertEqual(len(report.checks), 4)
 
     def test_log_event_masks_secrets(self) -> None:
         stream = io.StringIO()

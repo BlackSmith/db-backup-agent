@@ -5,8 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable
 
 from backup_agent.app.config import AppConfig
 from backup_agent.domain.backup_run import BackupRun, BackupRunError
@@ -25,7 +24,7 @@ from backup_agent.providers.databases import (
     MariaDBBackupProvider,
     PostgreSQLBackupProvider,
 )
-from backup_agent.providers.storage import RemoteStorageProvider
+from backup_agent.providers.storage import RemoteStorageProvider, build_storage_provider
 from backup_agent.services.discovery import ContainerDiscovery, DiscoveryError
 from backup_agent.services.manifest import ManifestWriter
 from backup_agent.services.metadata_resolver import MetadataResolutionError, MetadataResolver
@@ -57,21 +56,20 @@ class BackupOrchestratorService:
 
             self.manifest_writer = JsonManifestWriter()
         if self.remote_storage is None:
-            from backup_agent.providers.storage import RsyncStorageProvider
-
-            self.remote_storage = RsyncStorageProvider(
-                remote_host=self.config.rsync_remote_host,
-                remote_user=self.config.rsync_remote_user,
-                remote_password=self.config.rsync_remote_password,
-                remote_path=self.config.rsync_remote_path,
-            )
+            self.remote_storage = build_storage_provider(self.config)
         if self.retention is None:
             self.retention = FileSystemRetentionManager()
 
     def run_once(self) -> BackupRun:
         run = BackupRun(run_id=generate_run_id(), started_at=datetime.now(timezone.utc), status=STATUS_RUNNING)
         layout = self.staging.create_run(run.run_id)
-        log_event(self.logger, "run_start", run_id=run.run_id, run_dir=str(layout.run_dir))
+        log_event(
+            self.logger,
+            "run_start",
+            run_id=run.run_id,
+            run_dir=str(layout.run_dir),
+            storage_backend=self.config.storage_backend,
+        )
 
         try:
             discovered = self.discovery.discover()
@@ -92,7 +90,7 @@ class BackupOrchestratorService:
                 self._finish_run(run, layout)
                 return run
 
-            sync_result = self.remote_storage.sync(layout.run_dir, self.config.rsync_remote_path)
+            sync_result = self.remote_storage.sync(layout.run_dir)
             log_event(
                 self.logger,
                 "sync_finish",

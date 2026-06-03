@@ -133,7 +133,7 @@ def build_retention_plan(
     expired: list[Path] = []
     errors: list[str] = []
 
-    for run_dir in sorted(path for path in completed_runs_dir.iterdir() if path.is_dir()):
+    for run_dir in sorted(path for path in completed_runs_dir.iterdir() if path.is_dir() and not path.name.startswith(".")):
         run_at = _run_timestamp(run_dir)
         if run_at is None:
             errors.append(f"Unable to determine timestamp for {run_dir.name}")

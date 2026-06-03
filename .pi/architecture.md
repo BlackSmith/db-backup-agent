@@ -9,7 +9,7 @@ The system will run as a standalone container and will:
 - obtain connection metadata from labels or environment variables of target containers
 - execute PostgreSQL and MariaDB backups
 - store backups locally in a staging area
-- synchronize backups to remote storage via `rsync`
+- synchronize backups to remote storage via `rsync` or publish them to a mounted local storage directory
 - delete old backups according to a retention policy
 - remain ready for future support of additional database engines and storage backends
 
@@ -56,7 +56,7 @@ This approach provides:
 |  ├─ Local Staging Manager                                    |
 |  ├─ Manifest/Status Writer                                   |
 |  ├─ Retention Manager                                        |
-|  └─ Remote Sync Adapter (rsync)                              |
+|  └─ Storage Adapter (rsync or mounted local directory)        |
 | Logging / Metrics / Health                                   |
 +--------------------------------------------------------------+
 
@@ -78,12 +78,12 @@ This approach provides:
 +----------------------+
 
              |
-             | rsync
+             | rsync or mounted local directory publish
              v
 
-+----------------------+
-| Remote storage / NAS |
-+----------------------+
++-------------------------------+
+| Remote storage / NAS / volume |
++-------------------------------+
 ```
 
 ---
@@ -132,6 +132,7 @@ Loads and validates global configuration from environment variables:
 Recommended extensions:
 
 - `RSYNC_REMOTE_PATH`
+- `BACKUP_LOCAL_STORAGE`
 - `LOCAL_BACKUP_DIR=/backup`
 - `TZ=Europe/Prague`
 - `LOG_LEVEL=info`
@@ -328,33 +329,37 @@ Recommended `manifest.json` fields:
 - final status: `success`, `partial`, `failed`, `sync_failed`
 - error details
 
-### 5.8 Remote Sync Adapter
+### 5.8 Storage Adapters
 
-Initial implementation: `rsync`.
+Initial implementations:
+
+- `rsync` remote storage
+- mounted local directory storage via `BACKUP_LOCAL_STORAGE`
 
 Responsibilities:
 
-- transfer a completed run to remote storage
-- return detailed status and exit code
+- transfer or publish a completed run to durable storage
+- return detailed status and error data
 - log transfer progress and summary
 - optionally retry failed upload attempts in future versions
 
 Recommendation:
 
-- synchronize the full run directory as a unit
+- synchronize or copy the full run directory as a unit
 - do not treat individual files as separate remote transactions
-- if the storage supports it, upload into a temporary directory and rename after success
+- if the storage supports it, upload/copy into a temporary directory and rename after success
 
 Recommended config extensions:
 
 - `RSYNC_REMOTE_PATH=/backups`
+- `BACKUP_LOCAL_STORAGE=/mnt/backups`
 - `RSYNC_SSH_PORT=22`
 - `RSYNC_OPTIONS=...`
 
 Security note:
 
 - `RSYNC_REMOTE_PASSWORD` is acceptable for MVP
-- long term, SSH key authentication is preferred
+- long term, SSH key authentication or mounted storage with external secret handling is preferred
 
 ### 5.9 Retention Manager
 
@@ -571,16 +576,19 @@ Initial implementations:
 - `PostgreSQLBackupProvider`
 - `MariaDBBackupProvider`
 
-### RemoteStorageProvider
+### Storage Provider Interface
+
+The current implementation still uses the historical name `RemoteStorageProvider`, but architecturally this is now a generic storage provider abstraction.
 
 Suggested methods:
 
 - `sync(localPath, remotePath)`
 - `cleanup(retentionPolicy)`
 
-Initial implementation:
+Initial implementations:
 
 - `RsyncStorageProvider`
+- `LocalDirectoryStorageProvider`
 
 Possible future implementations:
 
@@ -766,6 +774,7 @@ Implemented modules include:
 - PostgreSQL and MariaDB backup providers
 - local staging and JSON manifest generation
 - rsync synchronization and retention cleanup
+- mounted local directory storage via `BACKUP_LOCAL_STORAGE`
 - structured logging, health checks, and run summaries
 - containerization and example Docker Compose deployment
 

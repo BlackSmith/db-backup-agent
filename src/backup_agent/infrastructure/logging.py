@@ -46,6 +46,8 @@ def log_config_validation(logger: logging.Logger, config: AppConfig) -> None:
     log_event(
         logger,
         "config_validated",
+        storage_backend=config.storage_backend,
+        backup_local_storage=str(config.backup_local_storage) if config.backup_local_storage else "",
         rsync_remote_host=config.rsync_remote_host,
         rsync_remote_user=config.rsync_remote_user,
         backup_time=config.backup_time.strftime("%H:%M"),

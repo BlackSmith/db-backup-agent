@@ -78,6 +78,7 @@ Required variables:
 
 Optional variables:
 
+- `BACKUP_LOCAL_STORAGE`
 - `RSYNC_REMOTE_PATH`
 - `LOCAL_BACKUP_DIR`
 - `TZ`
@@ -111,6 +112,7 @@ The container needs:
 
 Agent runtime variables:
 
+- `BACKUP_LOCAL_STORAGE` (optional; use a mounted local directory instead of rsync)
 - `RSYNC_REMOTE_HOST`
 - `RSYNC_REMOTE_USER`
 - `RSYNC_REMOTE_PASSWORD`
@@ -121,6 +123,8 @@ Agent runtime variables:
 - `TZ` (optional)
 - `LOG_LEVEL` (optional)
 - `DOCKER_SOCKET_PATH=/var/run/docker.sock`
+
+If `BACKUP_LOCAL_STORAGE` is set, the agent uses the mounted local storage backend and the rsync credentials are no longer required.
 
 ### Build the image
 
@@ -161,6 +165,16 @@ export POSTGRES_PASSWORD=change-me
 export MARIADB_ROOT_PASSWORD=change-me
 export MARIADB_PASSWORD=change-me
 ```
+
+### Optional mounted local storage mode
+
+If you mount a persistent directory directly into the backup-agent container, you can store completed runs there without rsync:
+
+```bash
+export BACKUP_LOCAL_STORAGE=/mnt/backups
+```
+
+In that mode, the agent copies completed runs into the mounted path and keeps the same run-directory layout under `runs/`.
 
 ## GitHub Actions CI and release
 

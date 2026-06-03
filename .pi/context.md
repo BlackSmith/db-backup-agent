@@ -12,6 +12,7 @@ Completed implementation areas:
 - PostgreSQL and MariaDB backup providers
 - local staging directories and manifest generation
 - rsync-based remote synchronization and retention cleanup
+- optional mounted local storage publishing through `BACKUP_LOCAL_STORAGE`
 - structured logging, health checks, and run summaries
 - containerization and example Docker Compose deployment
 
@@ -23,7 +24,7 @@ Primary runtime modules now live under `src/backup_agent/`:
 - `domain/` – backup models, manifest DTOs, status values, run summaries
 - `services/` – discovery, metadata resolution, staging, manifest writing, retention, orchestrator, scheduler
 - `providers/databases/` – PostgreSQL and MariaDB providers
-- `providers/storage/` – rsync storage provider
+- `providers/storage/` – rsync and mounted local directory storage providers
 - `infrastructure/` – Docker API client, filesystem helpers, logging helpers
 - `interfaces/` – CLI and health-check boundaries
 
@@ -40,6 +41,7 @@ Primary runtime modules now live under `src/backup_agent/`:
 - Logs use stable `key=value` event formatting with secret masking.
 - Health checks are deterministic and do not trigger backup side effects.
 - The container image installs the external tools needed by the providers: `pg_dump`, `pg_dumpall`, `mariadb-dump`, and `rsync`.
+- Storage backend selection is configuration-driven: `BACKUP_LOCAL_STORAGE` selects mounted local directory publishing; otherwise rsync remains the default backend.
 
 ## Delivered task trail
 
@@ -53,10 +55,13 @@ Implementation notes for each task were written to:
 - `.pi/done/06-rsync-sync-and-retention.md`
 - `.pi/done/07-health-logging-and-run-summary.md`
 - `.pi/done/08-containerization-and-example-deployment.md`
+- `.pi/done/10-github-actions-ci-release.md`
+- `.pi/done/11-local-mounted-storage-provider.md`
 
 ## Known trade-offs / follow-up candidates
 
 - The rsync transport is implemented for password-file/daemon-style handling; future deployment hardening may prefer SSH keys or secrets management.
+- Mounted local storage is now supported but the storage abstraction is still named `RemoteStorageProvider`; a future cleanup may rename it to `StorageProvider`.
 - The orchestrator currently integrates discovery, backup, sync, retention, manifest writing, and logging in a single service; this is acceptable for MVP but could be split later if complexity grows.
 - Health checks are minimal by design and currently only verify process status, local writeability, and Docker API reachability.
 - Metrics endpoints are not yet implemented.
