@@ -179,6 +179,8 @@ The nightly image is published as:
 ghcr.io/<owner>/<repo>:nightly
 ```
 
+The workflow normalizes the GHCR repository name to lowercase before publishing, which avoids Docker tag errors when the GitHub repository contains uppercase letters.
+
 ### Release workflow
 
 - Triggers on tag pushes matching `v*` such as `v0.1.0`
