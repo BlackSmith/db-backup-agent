@@ -13,6 +13,7 @@ class BackupTarget:
     host: str
     port: int
     user: str | None = None
+    password: str | None = None
     password_ref: str | None = None
     databases: list[str] = field(default_factory=list)
     all_databases: bool = False

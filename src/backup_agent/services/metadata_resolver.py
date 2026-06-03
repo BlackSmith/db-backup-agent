@@ -126,9 +126,8 @@ class ContainerMetadataResolver(MetadataResolver):
         user = _select_value(labels, env, ["backup_agent.pguser"], ["POSTGRES_USER"])
         host = _select_value(labels, env, ["backup_agent.pghost"], ["POSTGRES_HOST"])
         port_value = _select_value(labels, env, ["backup_agent.pgport"], ["POSTGRES_PORT"])
-        password_source = _select_source(
-            labels, env, ["backup_agent.pgpassword"], ["POSTGRES_PASSWORD"]
-        )
+        password_value = _select_value(labels, env, ["backup_agent.pgpassword"], ["POSTGRES_PASSWORD"])
+        password_ref = _select_source(labels, env, ["backup_agent.pgpassword"], ["POSTGRES_PASSWORD"])
         database_value = _select_value(
             labels,
             env,
@@ -144,7 +143,8 @@ class ContainerMetadataResolver(MetadataResolver):
             user=user,
             host=host,
             port_value=port_value,
-            password_source=password_source,
+            password_value=password_value,
+            password_ref=password_ref,
             databases=databases,
         )
 
@@ -158,7 +158,13 @@ class ContainerMetadataResolver(MetadataResolver):
         user = _select_value(labels, env, ["backup_agent.mariadbuser"], ["MARIADB_USER"])
         host = _select_value(labels, env, ["backup_agent.mariadbhost"], ["MARIADB_HOST"])
         port_value = _select_value(labels, env, ["backup_agent.mariadbport"], ["MARIADB_PORT"])
-        password_source = _select_source(
+        password_value = _select_value(
+            labels,
+            env,
+            ["backup_agent.mariadbpassword"],
+            ["MARIADB_PASSWORD", "MARIADB_ROOT_PASSWORD"],
+        )
+        password_ref = _select_source(
             labels,
             env,
             ["backup_agent.mariadbpassword"],
@@ -176,7 +182,8 @@ class ContainerMetadataResolver(MetadataResolver):
             user=user,
             host=host,
             port_value=port_value,
-            password_source=password_source,
+            password_value=password_value,
+            password_ref=password_ref,
             databases=databases,
         )
 
@@ -190,7 +197,8 @@ class ContainerMetadataResolver(MetadataResolver):
         user: tuple[str, str] | None,
         host: tuple[str, str] | None,
         port_value: tuple[str, str] | None,
-        password_source: tuple[str, str] | None,
+        password_value: tuple[str, str] | None,
+        password_ref: tuple[str, str] | None,
         databases: list[str],
     ) -> BackupTarget:
         missing: list[str] = []
@@ -199,8 +207,11 @@ class ContainerMetadataResolver(MetadataResolver):
         resolved_port_raw = _require_value(
             port_value, "port", container_name, container_id, missing
         )
+        resolved_password = _require_value(
+            password_value, "password", container_name, container_id, missing
+        )
         resolved_password_ref = _require_source(
-            password_source, "password", container_name, container_id, missing
+            password_ref, "password", container_name, container_id, missing
         )
 
         resolved_port = _parse_port(resolved_port_raw, container_name, container_id, missing)
@@ -217,6 +228,7 @@ class ContainerMetadataResolver(MetadataResolver):
             host=resolved_host,
             port=resolved_port,
             user=resolved_user,
+            password=resolved_password,
             password_ref=resolved_password_ref,
             databases=databases,
             all_databases=not databases,
