@@ -140,17 +140,25 @@ Recommended extensions:
 - `LOG_LEVEL=info`
 - `DOCKER_SOCKET_PATH=/var/run/docker.sock`
 
-Validation rules:
+Validation rules in the current implementation:
 
-- `BACKUP_TIME` is optional; when provided it must be in `HH:MM`
-- when `BACKUP_TIME` is omitted, the application should use immediate-run mode instead of failing config validation
+- `BACKUP_TIME` is required and must be in `HH:MM`
 - `BACKUP_RETENTION_DAYS >= 1`
 - remote sync credentials must be present when rsync publishing is enabled
 - local backup directory must exist or be creatable
+- `BACKUP_LOCAL_STORAGE` and `LOCAL_BACKUP_DIR` must differ
+- at least one storage backend must be configured
+
+Planned but not yet implemented behavior from Task 14:
+
+- make `BACKUP_TIME` optional
+- support immediate-run mode when `BACKUP_TIME` is omitted
+- switch the default staging path to `/temporary_storage`
+- inherit `TZ` from the process environment when available
 
 ### 5.2 Scheduler
 
-Responsible for triggering one backup run per day when `BACKUP_TIME` is configured, or an immediate run when it is omitted.
+In the current implementation, the scheduler triggers one backup run per day using the validated `BACKUP_TIME`.
 
 Recommended approach:
 
@@ -164,11 +172,13 @@ Benefits:
 - easier health reporting
 - simpler container operation
 
-Scheduler behavior:
+Scheduler behavior in the current implementation:
 
-1. if `BACKUP_TIME` is configured, compute the next execution time from it
-2. if `BACKUP_TIME` is omitted, trigger the backup orchestrator immediately and return without entering the daily wait loop
-3. if `BACKUP_TIME` is configured, continue with the next daily execution
+1. require and validate `BACKUP_TIME`
+2. compute the next execution time from it
+3. continue with the next daily execution after each run
+
+Planned but not yet implemented Task 14 behavior would add immediate-run mode when `BACKUP_TIME` is omitted.
 
 ### 5.3 Container Discovery
 
@@ -193,11 +203,11 @@ Sources:
 - container environment variables
 - optional image metadata if needed later
 
-Recommended precedence:
+Implemented precedence:
 
 1. explicit `backup_agent.*` labels
 2. environment variables in the target container
-3. default values
+3. engine-specific default port values for PostgreSQL (`5432`) and MariaDB (`3306`) when no explicit port is supplied
 
 Normalized output example:
 
@@ -274,6 +284,14 @@ Credential handling:
 - avoid exposing passwords in command-line arguments when possible
 - use `PGPASSWORD` or another protected mechanism
 
+Planned database execution follow-up:
+
+- Task 20 is intended to add execution strategy selection with per-container label override using `backup_agent.dump_method`
+- the same policy model is planned for PostgreSQL and MariaDB
+- planned modes are `auto`, `exec`, and `local`
+- the planned default is `auto`: try Docker exec inside the target database container first, then fall back to local execution if exec fails
+- if operationally reasonable, the exec path may optionally apply gzip compression inside the target container before streaming the artifact back to local staging
+
 #### MariaDB Adapter
 
 Must support:
@@ -320,6 +338,7 @@ Benefits:
 - easier debugging
 - easy synchronization to NAS
 - easier restore by run ID
+- successful runs can safely remove only the transient staging tree after durable publication completes
 
 Recommended `manifest.json` fields:
 
@@ -346,6 +365,8 @@ Responsibilities:
 - transfer or publish a completed run to durable storage
 - return detailed status and error data
 - log transfer progress and summary
+- preserve staged data for failed or partial publish attempts
+- allow the orchestrator to clean up transient staging only after all configured publish targets succeed
 - optionally retry failed upload attempts in future versions
 
 Recommendation:
@@ -395,6 +416,7 @@ Provide structured logs for:
 - remote sync start and finish
 - retention start and finish
 - final run summary
+- per-error `run_error` events after a run completes so operators can see actionable failure reasons without exposing secrets
 
 #### Health
 
@@ -465,17 +487,19 @@ Fields:
 
 1. Scheduler starts a run at `BACKUP_TIME`
 2. Container Discovery loads containers with `backup_agent.enabled=true`
-3. Metadata Resolver builds `BackupTarget` objects
+3. Metadata Resolver builds `BackupTarget` objects, using default engine ports when none are provided explicitly
 4. Orchestrator validates and processes each target:
    - validate resolved metadata
    - choose the correct database adapter
    - produce backup artifacts in the staging directory
    - write results into the manifest
 5. After target processing:
-   - if at least one backup artifact exists, run remote sync
-6. After successful remote sync:
+   - if at least one backup artifact exists, publish the run to the configured storage backend set
+6. After successful publication across all configured backends:
    - execute retention cleanup
+   - remove the transient staging run tree
 7. Write final summary and status
+8. Emit structured `run_error` events for collected failures, if any
 
 ---
 
@@ -649,42 +673,63 @@ This keeps clear separation between:
 
 The project description states that metadata may come from labels or environment variables. The following resolution model is recommended.
 
-### PostgreSQL
+### Current implemented model
 
-Preferred labels:
+Current implementation still supports engine-specific labels such as:
 
-- `backup_agent.pguser`
-- `backup_agent.pghost`
-- `backup_agent.pgpassword`
-- `backup_agent.pgport`
-- `backup_agent.pgdatabase`
+- PostgreSQL:
+  - `backup_agent.pguser`
+  - `backup_agent.pghost`
+  - `backup_agent.pgpassword`
+  - `backup_agent.pgport`
+  - `backup_agent.pgdatabase`
+- MariaDB:
+  - `backup_agent.mariadbuser`
+  - `backup_agent.mariadbpassword`
+  - `backup_agent.mariadbhost`
+  - `backup_agent.mariadbport`
+  - `backup_agent.mariadbdatabase`
 
-Fallback environment variables:
+Current env support includes:
 
-- `POSTGRES_USER`
-- `POSTGRES_HOST`
-- `POSTGRES_PASSWORD`
-- `POSTGRES_PORT`
-- `POSTGRES_DB` or `POSTGRES_DATABASE`
+- PostgreSQL:
+  - `POSTGRES_USER`
+  - `POSTGRES_HOST`
+  - `POSTGRES_PASSWORD`
+  - `POSTGRES_PORT`
+  - `POSTGRES_DB` or `POSTGRES_DATABASE`
+- MariaDB:
+  - `MARIADB_USER`
+  - `MARIADB_PASSWORD`
+  - `MARIADB_ROOT_PASSWORD`
+  - `MARIADB_HOST`
+  - `MARIADB_PORT`
+  - `MARIADB_DATABASE`
 
-### MariaDB
+### Planned metadata simplification follow-up
 
-Preferred labels:
+Task 21 is intended to introduce a generic label model and broader env-family support.
 
-- `backup_agent.mariadbuser`
-- `backup_agent.mariadbpassword`
-- `backup_agent.mariadbhost`
-- `backup_agent.mariadbport`
-- `backup_agent.mariadbdatabase`
+Planned generic labels:
 
-Fallback environment variables:
+- `backup_agent.user`
+- `backup_agent.password`
+- `backup_agent.host`
+- `backup_agent.port`
+- `backup_agent.database`
+- `backup_agent.dump_method`
+- optional `backup_agent.type` as an explicit override
 
-- `MARIADB_USER`
-- `MARIADB_PASSWORD`
-- `MARIADB_ROOT_PASSWORD`
-- `MARIADB_HOST`
-- `MARIADB_PORT`
-- `MARIADB_DATABASE`
+Planned env-family inference:
+
+- `POSTGRES_*` => PostgreSQL
+- `MARIADB_*` => MySQL-family target handled by the MariaDB provider path
+- `MYSQL_*` => MySQL-family target handled by the MariaDB provider path
+
+Recommended migration direction:
+
+- prefer the new generic labels in docs and examples
+- keep legacy engine-specific labels temporarily for compatibility during migration if implementation complexity remains acceptable
 
 ### Database List Parsing
 
@@ -775,12 +820,16 @@ The repository currently implements the phase-1 MVP architecture in Python 3.13.
 Implemented modules include:
 
 - configuration loading and scheduler bootstrap
+- real CLI/runtime bootstrap through `build_orchestrator(config)`
 - Docker discovery and metadata resolution
 - PostgreSQL and MariaDB backup providers
 - local staging and JSON manifest generation
 - rsync synchronization and retention cleanup
 - mounted local directory storage via `BACKUP_LOCAL_STORAGE`
-- structured logging, health checks, and run summaries
+- composite storage backend selection for local-only, rsync-only, or combined publish flows
+- post-success staging cleanup after durable publication
+- default PostgreSQL and MariaDB port fallback behavior in metadata resolution
+- structured logging, health checks, run summaries, and post-run `run_error` console events
 - containerization and example Docker Compose deployment
 
-This means the architecture document remains valid as the target design, but the codebase has now progressed from planning into a working MVP implementation.
+The main intentionally deferred architectural follow-up is Task 14, which would change config semantics around `BACKUP_TIME`, default staging location, and timezone fallback.

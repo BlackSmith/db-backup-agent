@@ -94,7 +94,11 @@ See `.pi/project.md` and `.pi/architecture.md` for the full design context.
 
 ### Runtime image
 
-The provided `Dockerfile` builds a production-oriented image on top of `python:3.13-slim-bookworm` and installs the tools required by the backup providers:
+The provided `Dockerfile` builds a production-oriented image on top of `python:3.13-slim-bookworm` and installs the tools required by the backup providers.
+
+For PostgreSQL, the image uses the PostgreSQL APT repository so it can install a newer packaged `postgresql-client` than Debian bookworm provides by default. That keeps `pg_dump` / `pg_dumpall` compatible with newer PostgreSQL servers such as PostgreSQL 17.
+
+Installed tools include:
 
 - `pg_dump`
 - `pg_dumpall`
@@ -153,6 +157,8 @@ docker compose up -d --build
 ```
 
 The compose file expects secrets and remote storage settings to come from your environment or a local `.env` file; it does not hardcode passwords.
+
+Note: the runtime image now sources PostgreSQL client packages from the PostgreSQL APT repository to avoid the version skew caused by Debian bookworm's older default `postgresql-client` package.
 
 ### Example environment values
 

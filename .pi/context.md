@@ -13,7 +13,11 @@ Completed implementation areas:
 - local staging directories and manifest generation
 - rsync-based remote synchronization and retention cleanup
 - optional mounted local storage publishing through `BACKUP_LOCAL_STORAGE`
-- structured logging, health checks, and run summaries
+- composite storage backend selection for local-only, rsync-only, or combined publishing
+- real CLI/runtime bootstrap for live backup execution
+- post-success staging cleanup for successful publish flows
+- default PostgreSQL and MariaDB port fallback behavior in metadata resolution
+- structured logging, health checks, run summaries, and console-visible run error reporting
 - containerization and example Docker Compose deployment
 
 ## Repository shape
@@ -58,6 +62,10 @@ Implementation notes for each task were written to:
 - `.pi/done/10-github-actions-ci-release.md`
 - `.pi/done/11-local-mounted-storage-provider.md`
 - `.pi/done/12-storage-backend-selection-and-staging-cleanup.md`
+- `.pi/done/15-live-local-storage-validation-and-runtime-fix.md`
+- `.pi/done/16-cleanup-temporary-staging-after-successful-publish.md`
+- `.pi/done/17-default-database-port-fallbacks.md`
+- `.pi/done/18-console-error-reporting-for-export-and-upload-failures.md`
 
 ## Known trade-offs / follow-up candidates
 
@@ -65,20 +73,24 @@ Implementation notes for each task were written to:
 - Mounted local storage is now supported but the storage abstraction is still named `RemoteStorageProvider`; a future cleanup may rename it to `StorageProvider`.
 - The orchestrator currently integrates discovery, backup, sync, retention, manifest writing, and logging in a single service; this is acceptable for MVP but could be split later if complexity grows.
 - Health checks are minimal by design and currently only verify process status, local writeability, and Docker API reachability.
-- `BACKUP_TIME` is still a required config value in the current implementation; Task 14 plans to make it optional with an immediate-run fallback, switch the default staging path to `/temporary_storage`, and inherit `TZ` from the process environment when available.
-- The CLI/runtime bootstrap still appears to use a placeholder no-op path when no orchestrator is injected; Task 15 is intended to complete real runtime wiring and validate a live local-storage backup against the mounted Docker socket.
-- Temporary staging cleanup after successful publish is still a follow-up concern; Task 16 is intended to ensure `LOCAL_BACKUP_DIR` is cleaned after successful local-storage and/or NAS publication while preserving staging on failed or partial runs.
-- Metadata resolution still expects explicit DB port metadata; Task 17 is intended to add standard default port fallbacks for PostgreSQL (`5432`) and MariaDB (`3306`).
-- Runtime console logging is still too summary-oriented for export and publish failures; Task 18 is intended to print actionable DB export and upload error reasons directly to the console while preserving secret masking.
+- `BACKUP_TIME` is still a required config value in the current implementation. Task 14 remains intentionally pending and would make scheduled time optional, add immediate-run fallback semantics, switch the default staging path to `/temporary_storage`, and inherit `TZ` from the process environment when available.
+- Console-visible run error reporting is currently emitted as structured `run_error` events after the run completes. If operators later need richer console diagnostics, a follow-up could reintroduce sanitized `stderr` excerpts or add dedicated debug-mode error expansion.
 - Metrics endpoints are not yet implemented.
+- PostgreSQL runtime packaging currently needs a compatibility follow-up for newer PostgreSQL server versions. A real PostgreSQL 17 backup failed because the image contains `pg_dump` 15.x from Debian bookworm; Task 19 tracks upgrading the packaged `pg_dump` / `pg_dumpall` toolchain to the newest practical version.
+- A further database execution follow-up is planned in Task 20: support shared label-selected dump method control via `backup_agent.dump_method`, applying to PostgreSQL and MariaDB with default `auto` behavior that tries Docker exec inside the target database container first and falls back to local execution if exec fails.
+- Metadata simplification is planned in Task 21: migrate from engine-specific `backup_agent.pg*` / `backup_agent.mariadb*` labels to generic `backup_agent.*` labels, infer engine type from env-variable families, and accept both `MARIADB_*` and `MYSQL_*` variables for MySQL-family targets.
 - Restore workflows, encryption, notifications, and additional storage backends remain future work.
 
 ## Recommended next steps
 
 If the project moves into phase 2, the most valuable follow-up areas are:
 
-1. hardening secret handling and deployment security
-2. improving retry and failure recovery behavior
-3. adding an HTTP health/metrics endpoint if operationally useful
-4. validating the Docker image build in CI
-5. preparing restore workflows and checksum support
+1. decide whether Task 14 should remain deferred or be implemented as a product behavior change
+2. upgrade packaged PostgreSQL dump tools to the newest practical version (Task 19)
+3. add database remote-exec dump strategy for PostgreSQL and MariaDB with shared label-selected method and exec-to-local fallback (Task 20)
+4. simplify metadata labels and add MySQL/MariaDB env alias support (Task 21)
+5. hardening secret handling and deployment security
+6. improving retry and failure recovery behavior
+7. adding an HTTP health/metrics endpoint if operationally useful
+8. validating the Docker image build in CI
+9. preparing restore workflows and checksum support

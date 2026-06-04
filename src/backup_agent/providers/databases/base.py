@@ -13,6 +13,9 @@ from backup_agent.domain.artifact import BackupArtifact
 from backup_agent.domain.backup_target import BackupTarget
 
 
+_VALID_DUMP_METHODS = {"auto", "exec", "local"}
+
+
 @dataclass(slots=True)
 class CommandResult:
     """Result of a command execution."""
@@ -97,6 +100,17 @@ class BackupProviderResult:
     @property
     def has_failures(self) -> bool:
         return bool(self.errors)
+
+
+def resolve_dump_method(labels: Mapping[str, str], label_name: str = "backup_agent.dump_method") -> str:
+    """Resolve the configured dump execution strategy."""
+
+    value = str(labels.get(label_name, "")).strip().lower()
+    if not value:
+        return "auto"
+    if value not in _VALID_DUMP_METHODS:
+        return "auto"
+    return value
 
 
 class DatabaseBackupProvider(ABC):

@@ -100,6 +100,12 @@ class ContainerMetadataResolver(MetadataResolver):
                 "MARIADB_HOST",
                 "MARIADB_PORT",
                 "MARIADB_DATABASE",
+                "MYSQL_USER",
+                "MYSQL_PASSWORD",
+                "MYSQL_ROOT_PASSWORD",
+                "MYSQL_HOST",
+                "MYSQL_PORT",
+                "MYSQL_DATABASE",
             ],
         )
 
@@ -123,15 +129,25 @@ class ContainerMetadataResolver(MetadataResolver):
         labels: Mapping[str, str],
         env: Mapping[str, str],
     ) -> BackupTarget:
-        user = _select_value(labels, env, ["backup_agent.pguser"], ["POSTGRES_USER"])
-        host = _select_value(labels, env, ["backup_agent.pghost"], ["POSTGRES_HOST"])
-        port_value = _select_value(labels, env, ["backup_agent.pgport"], ["POSTGRES_PORT"])
-        password_value = _select_value(labels, env, ["backup_agent.pgpassword"], ["POSTGRES_PASSWORD"])
-        password_ref = _select_source(labels, env, ["backup_agent.pgpassword"], ["POSTGRES_PASSWORD"])
+        user = _select_value(labels, env, ["backup_agent.user", "backup_agent.pguser"], ["POSTGRES_USER"])
+        host = _select_value(labels, env, ["backup_agent.host", "backup_agent.pghost"], ["POSTGRES_HOST"])
+        port_value = _select_value(labels, env, ["backup_agent.port", "backup_agent.pgport"], ["POSTGRES_PORT"])
+        password_value = _select_value(
+            labels,
+            env,
+            ["backup_agent.password", "backup_agent.pgpassword"],
+            ["POSTGRES_PASSWORD"],
+        )
+        password_ref = _select_source(
+            labels,
+            env,
+            ["backup_agent.password", "backup_agent.pgpassword"],
+            ["POSTGRES_PASSWORD"],
+        )
         database_value = _select_value(
             labels,
             env,
-            ["backup_agent.pgdatabase"],
+            ["backup_agent.database", "backup_agent.pgdatabase"],
             ["POSTGRES_DB", "POSTGRES_DATABASE"],
         )
         databases = parse_database_list(database_value[0] if database_value else None)
@@ -156,23 +172,41 @@ class ContainerMetadataResolver(MetadataResolver):
         labels: Mapping[str, str],
         env: Mapping[str, str],
     ) -> BackupTarget:
-        user = _select_value(labels, env, ["backup_agent.mariadbuser"], ["MARIADB_USER"])
-        host = _select_value(labels, env, ["backup_agent.mariadbhost"], ["MARIADB_HOST"])
-        port_value = _select_value(labels, env, ["backup_agent.mariadbport"], ["MARIADB_PORT"])
+        user = _select_value(
+            labels,
+            env,
+            ["backup_agent.user", "backup_agent.mariadbuser"],
+            ["MARIADB_USER", "MYSQL_USER"],
+        )
+        host = _select_value(
+            labels,
+            env,
+            ["backup_agent.host", "backup_agent.mariadbhost"],
+            ["MARIADB_HOST", "MYSQL_HOST"],
+        )
+        port_value = _select_value(
+            labels,
+            env,
+            ["backup_agent.port", "backup_agent.mariadbport"],
+            ["MARIADB_PORT", "MYSQL_PORT"],
+        )
         password_value = _select_value(
             labels,
             env,
-            ["backup_agent.mariadbpassword"],
-            ["MARIADB_PASSWORD", "MARIADB_ROOT_PASSWORD"],
+            ["backup_agent.password", "backup_agent.mariadbpassword"],
+            ["MARIADB_PASSWORD", "MARIADB_ROOT_PASSWORD", "MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD"],
         )
         password_ref = _select_source(
             labels,
             env,
-            ["backup_agent.mariadbpassword"],
-            ["MARIADB_PASSWORD", "MARIADB_ROOT_PASSWORD"],
+            ["backup_agent.password", "backup_agent.mariadbpassword"],
+            ["MARIADB_PASSWORD", "MARIADB_ROOT_PASSWORD", "MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD"],
         )
         database_value = _select_value(
-            labels, env, ["backup_agent.mariadbdatabase"], ["MARIADB_DATABASE"]
+            labels,
+            env,
+            ["backup_agent.database", "backup_agent.mariadbdatabase"],
+            ["MARIADB_DATABASE", "MYSQL_DATABASE"],
         )
         databases = parse_database_list(database_value[0] if database_value else None)
         return self._build_target(

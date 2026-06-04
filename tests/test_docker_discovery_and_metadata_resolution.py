@@ -102,6 +102,65 @@ class DockerDiscoveryAndMetadataResolutionTests(unittest.TestCase):
         self.assertEqual(target.databases, ["db1", "db2"])
         self.assertFalse(target.all_databases)
 
+    def test_generic_labels_are_supported(self) -> None:
+        resolver = ContainerMetadataResolver()
+        target = resolver.resolve(
+            {
+                "id": "abc123",
+                "name": "/postgres-app",
+                "labels": {
+                    "backup_agent.enabled": "true",
+                    "backup_agent.type": "postgresql",
+                    "backup_agent.user": "generic_user",
+                    "backup_agent.host": "generic_host",
+                    "backup_agent.password": "generic_secret",
+                    "backup_agent.port": "5432",
+                    "backup_agent.database": "db1,db2",
+                },
+                "env": [],
+            }
+        )
+
+        self.assertIsNotNone(target)
+        assert target is not None
+        self.assertEqual(target.user, "generic_user")
+        self.assertEqual(target.host, "generic_host")
+        self.assertEqual(target.password_ref, "label:backup_agent.password")
+        self.assertEqual(target.port, 5432)
+        self.assertEqual(target.databases, ["db1", "db2"])
+
+    def test_generic_labels_override_legacy_labels(self) -> None:
+        resolver = ContainerMetadataResolver()
+        target = resolver.resolve(
+            {
+                "id": "abc123",
+                "name": "/postgres-app",
+                "labels": {
+                    "backup_agent.enabled": "true",
+                    "backup_agent.type": "postgresql",
+                    "backup_agent.user": "generic_user",
+                    "backup_agent.host": "generic_host",
+                    "backup_agent.password": "generic_secret",
+                    "backup_agent.port": "5432",
+                    "backup_agent.database": "db1",
+                    "backup_agent.pguser": "legacy_user",
+                    "backup_agent.pghost": "legacy_host",
+                    "backup_agent.pgpassword": "legacy_secret",
+                    "backup_agent.pgport": "5433",
+                    "backup_agent.pgdatabase": "legacydb",
+                },
+                "env": [],
+            }
+        )
+
+        self.assertIsNotNone(target)
+        assert target is not None
+        self.assertEqual(target.user, "generic_user")
+        self.assertEqual(target.host, "generic_host")
+        self.assertEqual(target.password_ref, "label:backup_agent.password")
+        self.assertEqual(target.port, 5432)
+        self.assertEqual(target.databases, ["db1"])
+
     def test_mariadb_missing_database_list_is_treated_as_all_databases(self) -> None:
         resolver = ContainerMetadataResolver()
         target = resolver.resolve(
@@ -125,6 +184,32 @@ class DockerDiscoveryAndMetadataResolutionTests(unittest.TestCase):
         self.assertEqual(target.databases, [])
         self.assertTrue(target.all_databases)
 
+    def test_mysql_env_aliases_are_accepted_for_mariadb(self) -> None:
+        resolver = ContainerMetadataResolver()
+        target = resolver.resolve(
+            {
+                "id": "def456",
+                "name": "/mysql-app",
+                "labels": {"backup_agent.enabled": "true"},
+                "env": [
+                    "MYSQL_USER=root",
+                    "MYSQL_HOST=db",
+                    "MYSQL_PASSWORD=env_secret",
+                    "MYSQL_PORT=3306",
+                    "MYSQL_DATABASE=appdb",
+                ],
+            }
+        )
+
+        self.assertIsNotNone(target)
+        assert target is not None
+        self.assertEqual(target.db_type, "mariadb")
+        self.assertEqual(target.user, "root")
+        self.assertEqual(target.host, "db")
+        self.assertEqual(target.password_ref, "env:MYSQL_PASSWORD")
+        self.assertEqual(target.port, 3306)
+        self.assertEqual(target.databases, ["appdb"])
+
     def test_postgresql_defaults_to_standard_port_when_missing(self) -> None:
         resolver = ContainerMetadataResolver()
         target = resolver.resolve(
@@ -134,10 +219,10 @@ class DockerDiscoveryAndMetadataResolutionTests(unittest.TestCase):
                 "labels": {
                     "backup_agent.enabled": "true",
                     "backup_agent.type": "postgresql",
-                    "backup_agent.pguser": "app",
-                    "backup_agent.pghost": "db",
-                    "backup_agent.pgpassword": "secret",
-                    "backup_agent.pgdatabase": "appdb",
+                    "backup_agent.user": "app",
+                    "backup_agent.host": "db",
+                    "backup_agent.password": "secret",
+                    "backup_agent.database": "appdb",
                 },
                 "env": [],
             }
@@ -156,10 +241,10 @@ class DockerDiscoveryAndMetadataResolutionTests(unittest.TestCase):
                 "labels": {
                     "backup_agent.enabled": "true",
                     "backup_agent.type": "mariadb",
-                    "backup_agent.mariadbuser": "root",
-                    "backup_agent.mariadbhost": "db",
-                    "backup_agent.mariadbpassword": "secret",
-                    "backup_agent.mariadbdatabase": "appdb",
+                    "backup_agent.user": "root",
+                    "backup_agent.host": "db",
+                    "backup_agent.password": "secret",
+                    "backup_agent.database": "appdb",
                 },
                 "env": [],
             }
@@ -177,10 +262,10 @@ class DockerDiscoveryAndMetadataResolutionTests(unittest.TestCase):
                 {
                     "backup_agent.enabled": "true",
                     "backup_agent.type": "postgresql",
-                    "backup_agent.pguser": "app",
-                    "backup_agent.pghost": "db",
-                    "backup_agent.pgpassword": "secret",
-                    "backup_agent.pgport": "not-a-number",
+                    "backup_agent.user": "app",
+                    "backup_agent.host": "db",
+                    "backup_agent.password": "secret",
+                    "backup_agent.port": "not-a-number",
                 },
                 "POSTGRES_PORT=5432",
             ),
@@ -189,12 +274,12 @@ class DockerDiscoveryAndMetadataResolutionTests(unittest.TestCase):
                 {
                     "backup_agent.enabled": "true",
                     "backup_agent.type": "mariadb",
-                    "backup_agent.mariadbuser": "root",
-                    "backup_agent.mariadbhost": "db",
-                    "backup_agent.mariadbpassword": "secret",
-                    "backup_agent.mariadbport": "",
+                    "backup_agent.user": "root",
+                    "backup_agent.host": "db",
+                    "backup_agent.password": "secret",
+                    "backup_agent.port": "",
                 },
-                "MARIADB_PORT=not-a-number",
+                "MYSQL_PORT=not-a-number",
             ),
         ]
 
@@ -225,10 +310,10 @@ class DockerDiscoveryAndMetadataResolutionTests(unittest.TestCase):
                         "POSTGRES_HOST=db",
                         "POSTGRES_PASSWORD=secret",
                         "POSTGRES_PORT=5432",
-                        "MARIADB_USER=root",
-                        "MARIADB_HOST=db2",
-                        "MARIADB_PASSWORD=secret2",
-                        "MARIADB_PORT=3306",
+                        "MYSQL_USER=root",
+                        "MYSQL_HOST=db2",
+                        "MYSQL_PASSWORD=secret2",
+                        "MYSQL_PORT=3306",
                     ],
                 }
             )
