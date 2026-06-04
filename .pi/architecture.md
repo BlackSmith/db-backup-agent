@@ -284,13 +284,20 @@ Credential handling:
 - avoid exposing passwords in command-line arguments when possible
 - use `PGPASSWORD` or another protected mechanism
 
-Planned database execution follow-up:
+Current execution strategy behavior:
 
-- Task 20 is intended to add execution strategy selection with per-container label override using `backup_agent.dump_method`
-- the same policy model is planned for PostgreSQL and MariaDB
-- planned modes are `auto`, `exec`, and `local`
-- the planned default is `auto`: try Docker exec inside the target database container first, then fall back to local execution if exec fails
-- if operationally reasonable, the exec path may optionally apply gzip compression inside the target container before streaming the artifact back to local staging
+- PostgreSQL supports `backup_agent.dump_method=auto|exec|local`
+- the current default is `auto`: try Docker exec inside the target PostgreSQL container first, then fall back to local execution if exec fails
+- `exec` requires the remote path and does not silently fall back
+- `local` preserves the local runtime tool path
+- the current remote-exec implementation streams raw dump output back into local staging; remote gzip remains a possible future enhancement rather than current behavior
+
+Planned PostgreSQL format-selection follow-up:
+
+- Task 22 is intended to add `backup_agent.dump_format=binary|sql_gzip|both`
+- for explicit databases, the planned default is to produce both binary custom-format and gzip-compressed SQL artifacts when the label is missing
+- PostgreSQL `all_databases` remains a design caveat because `pg_dumpall` does not produce a single custom-format binary dump equivalent
+- the planned behavior should therefore define an explicit error or restriction rather than silently pretending binary cluster-wide output exists
 
 #### MariaDB Adapter
 
@@ -310,6 +317,14 @@ Credential handling:
 
 - do not leak passwords in logs
 - prefer environment variables or temporary defaults file over direct visible CLI output where possible
+
+Current execution strategy behavior:
+
+- MariaDB supports `backup_agent.dump_method=auto|exec|local`
+- the current default is `auto`: try Docker exec inside the target database container first, then fall back to local execution if exec fails
+- `exec` requires the remote path and does not silently fall back
+- `local` preserves the local runtime tool path
+- the current remote-exec implementation uses the container's `mariadb-dump` and streams raw output into local staging; remote gzip remains a possible future enhancement rather than current behavior
 
 ### 5.7 Local Staging Manager
 
@@ -675,7 +690,17 @@ The project description states that metadata may come from labels or environment
 
 ### Current implemented model
 
-Current implementation still supports engine-specific labels such as:
+Current implementation supports generic labels for shared metadata fields:
+
+- `backup_agent.user`
+- `backup_agent.password`
+- `backup_agent.host`
+- `backup_agent.port`
+- `backup_agent.database`
+- `backup_agent.dump_method`
+- optional `backup_agent.type` as an explicit override
+
+Current implementation also still accepts legacy engine-specific labels during the migration window:
 
 - PostgreSQL:
   - `backup_agent.pguser`
@@ -698,38 +723,33 @@ Current env support includes:
   - `POSTGRES_PASSWORD`
   - `POSTGRES_PORT`
   - `POSTGRES_DB` or `POSTGRES_DATABASE`
-- MariaDB:
+- MySQL-family targets routed through the MariaDB provider path:
   - `MARIADB_USER`
   - `MARIADB_PASSWORD`
   - `MARIADB_ROOT_PASSWORD`
   - `MARIADB_HOST`
   - `MARIADB_PORT`
   - `MARIADB_DATABASE`
+  - `MYSQL_USER`
+  - `MYSQL_PASSWORD`
+  - `MYSQL_ROOT_PASSWORD`
+  - `MYSQL_HOST`
+  - `MYSQL_PORT`
+  - `MYSQL_DATABASE`
 
-### Planned metadata simplification follow-up
+Current inference and precedence model:
 
-Task 21 is intended to introduce a generic label model and broader env-family support.
+1. explicit `backup_agent.type` when present
+2. env-family inference:
+   - `POSTGRES_*` => PostgreSQL
+   - `MARIADB_*` or `MYSQL_*` => MySQL-family target handled by the MariaDB provider path
+3. fail when the target remains ambiguous
 
-Planned generic labels:
+Current migration direction:
 
-- `backup_agent.user`
-- `backup_agent.password`
-- `backup_agent.host`
-- `backup_agent.port`
-- `backup_agent.database`
-- `backup_agent.dump_method`
-- optional `backup_agent.type` as an explicit override
-
-Planned env-family inference:
-
-- `POSTGRES_*` => PostgreSQL
-- `MARIADB_*` => MySQL-family target handled by the MariaDB provider path
-- `MYSQL_*` => MySQL-family target handled by the MariaDB provider path
-
-Recommended migration direction:
-
-- prefer the new generic labels in docs and examples
-- keep legacy engine-specific labels temporarily for compatibility during migration if implementation complexity remains acceptable
+- prefer generic labels in docs and examples
+- keep legacy engine-specific labels temporarily for compatibility during migration
+- prefer generic labels over legacy engine-specific labels when both are present
 
 ### Database List Parsing
 
@@ -823,12 +843,16 @@ Implemented modules include:
 - real CLI/runtime bootstrap through `build_orchestrator(config)`
 - Docker discovery and metadata resolution
 - PostgreSQL and MariaDB backup providers
+- runtime PostgreSQL client packaging via the PostgreSQL APT repository for newer server compatibility
+- shared dump execution strategy via `backup_agent.dump_method` with `auto`, `exec`, and `local` modes for PostgreSQL and MariaDB
 - local staging and JSON manifest generation
 - rsync synchronization and retention cleanup
 - mounted local directory storage via `BACKUP_LOCAL_STORAGE`
 - composite storage backend selection for local-only, rsync-only, or combined publish flows
 - post-success staging cleanup after durable publication
 - default PostgreSQL and MariaDB port fallback behavior in metadata resolution
+- generic `backup_agent.*` labels with backward-compatible legacy label support
+- `MARIADB_*` and `MYSQL_*` env-family support for MySQL-family targets
 - structured logging, health checks, run summaries, and post-run `run_error` console events
 - containerization and example Docker Compose deployment
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,7 +27,27 @@ class FakeExecutor:
             returncode, stdout, stderr = self.results[index]
         else:
             returncode, stdout, stderr = (0, "", "")
+        if returncode == 0:
+            self._write_output_file(command)
         return CommandResult(command=list(command), returncode=returncode, stdout=stdout, stderr=stderr)
+
+    def _write_output_file(self, command: list[str]) -> None:
+        output_path = None
+        if "-f" in command:
+            index = command.index("-f")
+            if index + 1 < len(command):
+                output_path = Path(command[index + 1])
+        elif "--result-file" in command:
+            index = command.index("--result-file")
+            if index + 1 < len(command):
+                output_path = Path(command[index + 1])
+
+        if output_path is None:
+            return
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        content = "backup\n"
+        output_path.write_text(content, encoding="utf-8")
 
 
 class FakeDockerExecResult:
@@ -89,43 +110,86 @@ class DatabaseBackupProviderTests(unittest.TestCase):
         data.update(overrides)
         return BackupTarget(**data)
 
-    def test_postgresql_single_database_creates_dump_artifact(self) -> None:
+    def test_postgresql_single_database_defaults_to_both_formats(self) -> None:
         executor = FakeExecutor()
         provider = PostgreSQLBackupProvider(executor)
+        target = self._postgres_target(labels={"backup_agent.enabled": "true", "backup_agent.dump_method": "local"})
         with tempfile.TemporaryDirectory() as temp_dir:
-            result = provider.backup(self._postgres_target(), Path(temp_dir))
+            result = provider.backup(target, Path(temp_dir))
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(len(result.artifacts), 2)
+        self.assertEqual([artifact.format for artifact in result.artifacts], ["postgresql-custom", "postgresql-sql-gzip"])
+        self.assertEqual([artifact.path.name for artifact in result.artifacts], ["db1.dump", "db1.sql.gz"])
+        self.assertEqual([command[0] for command in executor.commands], ["pg_dump", "pg_dump"])
+        self.assertIn("-Fc", executor.commands[0])
+        self.assertIn("-Fp", executor.commands[1])
+        self.assertEqual(executor.envs[0]["PGPASSWORD"], "secret")
+
+    def test_postgresql_single_database_can_limit_to_binary_format(self) -> None:
+        executor = FakeExecutor()
+        provider = PostgreSQLBackupProvider(executor)
+        target = self._postgres_target(labels={"backup_agent.enabled": "true", "backup_agent.dump_method": "local", "backup_agent.dump_format": "binary"})
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = provider.backup(target, Path(temp_dir))
 
         self.assertEqual(result.status, "success")
         self.assertEqual(len(result.artifacts), 1)
-        self.assertEqual(result.artifacts[0].database, "db1")
-        self.assertTrue(result.artifacts[0].path.name.endswith(".dump"))
-        self.assertEqual(executor.commands[0][0], "pg_dump")
+        self.assertEqual(result.artifacts[0].format, "postgresql-custom")
+        self.assertEqual(result.artifacts[0].path.name, "db1.dump")
+        self.assertEqual(len(executor.commands), 1)
         self.assertIn("-Fc", executor.commands[0])
-        self.assertEqual(executor.envs[0]["PGPASSWORD"], "secret")
 
-    def test_postgresql_all_databases_uses_pg_dumpall(self) -> None:
+    def test_postgresql_single_database_can_limit_to_sql_gzip_format(self) -> None:
         executor = FakeExecutor()
         provider = PostgreSQLBackupProvider(executor)
+        target = self._postgres_target(labels={"backup_agent.enabled": "true", "backup_agent.dump_method": "local", "backup_agent.dump_format": "sql_gzip"})
         with tempfile.TemporaryDirectory() as temp_dir:
-            result = provider.backup(
-                self._postgres_target(databases=[], all_databases=True), Path(temp_dir)
-            )
+            result = provider.backup(target, Path(temp_dir))
+            self.assertEqual(result.status, "success")
+            self.assertEqual(len(result.artifacts), 1)
+            self.assertEqual(result.artifacts[0].format, "postgresql-sql-gzip")
+            self.assertEqual(result.artifacts[0].path.name, "db1.sql.gz")
+            self.assertEqual(len(executor.commands), 1)
+            self.assertIn("-Fp", executor.commands[0])
+            with gzip.open(result.artifacts[0].path, "rt", encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "backup\n")
+
+    def test_postgresql_all_databases_uses_pg_dumpall_and_sql_gzip(self) -> None:
+        executor = FakeExecutor()
+        provider = PostgreSQLBackupProvider(executor)
+        target = self._postgres_target(databases=[], all_databases=True, labels={"backup_agent.enabled": "true", "backup_agent.dump_method": "local", "backup_agent.dump_format": "sql_gzip"})
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = provider.backup(target, Path(temp_dir))
 
         self.assertEqual(result.status, "success")
         self.assertEqual(executor.commands[0][0], "pg_dumpall")
-        self.assertEqual(result.artifacts[0].format, "postgresql-sql")
-        self.assertIsNone(result.artifacts[0].database)
+        self.assertEqual(result.artifacts[0].format, "postgresql-sql-gzip")
+        self.assertEqual(result.artifacts[0].path.name, "all-databases.sql.gz")
+
+    def test_postgresql_all_databases_rejects_binary_format(self) -> None:
+        executor = FakeExecutor()
+        provider = PostgreSQLBackupProvider(executor)
+        target = self._postgres_target(databases=[], all_databases=True, labels={"backup_agent.enabled": "true", "backup_agent.dump_method": "local", "backup_agent.dump_format": "binary"})
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = provider.backup(target, Path(temp_dir))
+
+        self.assertEqual(result.status, "failed")
+        self.assertFalse(result.artifacts)
+        self.assertTrue(result.errors)
+        self.assertIn("all_databases=True", result.errors[0].message)
 
     def test_postgresql_multiple_databases_runs_one_command_per_database(self) -> None:
         executor = FakeExecutor()
         provider = PostgreSQLBackupProvider(executor)
-        target = self._postgres_target(databases=["db1", "db2"])
+        target = self._postgres_target(databases=["db1", "db2"], labels={"backup_agent.enabled": "true", "backup_agent.dump_method": "local", "backup_agent.dump_format": "binary"})
         with tempfile.TemporaryDirectory() as temp_dir:
             result = provider.backup(target, Path(temp_dir))
 
         self.assertEqual(result.status, "success")
         self.assertEqual([command[0] for command in executor.commands], ["pg_dump", "pg_dump"])
         self.assertEqual([artifact.database for artifact in result.artifacts], ["db1", "db2"])
+        self.assertEqual([artifact.path.name for artifact in result.artifacts], ["db1.dump", "db2.dump"])
 
     def test_postgresql_remote_exec_with_local_fallback_succeeds(self) -> None:
         docker_client = FakeDockerClient([
@@ -133,7 +197,7 @@ class DatabaseBackupProviderTests(unittest.TestCase):
         ])
         executor = FakeExecutor()
         provider = PostgreSQLBackupProvider(executor, docker_client=docker_client)
-        target = self._postgres_target(labels={"backup_agent.enabled": "true", "backup_agent.dump_method": "auto"})
+        target = self._postgres_target(labels={"backup_agent.enabled": "true", "backup_agent.dump_method": "auto", "backup_agent.dump_format": "binary"})
         with tempfile.TemporaryDirectory() as temp_dir:
             result = provider.backup(target, Path(temp_dir))
 
@@ -202,10 +266,11 @@ class DatabaseBackupProviderTests(unittest.TestCase):
         self.assertIn("remote mariadb-dump failed", result.errors[0].message)
 
     def test_failed_command_is_reported_in_result(self) -> None:
-        executor = FakeExecutor([(1, "", "boom")])
+        executor = FakeExecutor([(1, "", "boom"), (1, "", "boom")])
         provider = PostgreSQLBackupProvider(executor)
+        target = self._postgres_target(labels={"backup_agent.enabled": "true", "backup_agent.dump_method": "local", "backup_agent.dump_format": "binary"})
         with tempfile.TemporaryDirectory() as temp_dir:
-            result = provider.backup(self._postgres_target(), Path(temp_dir))
+            result = provider.backup(target, Path(temp_dir))
 
         self.assertEqual(result.status, "failed")
         self.assertFalse(result.artifacts)

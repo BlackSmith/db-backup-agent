@@ -17,6 +17,10 @@ Completed implementation areas:
 - real CLI/runtime bootstrap for live backup execution
 - post-success staging cleanup for successful publish flows
 - default PostgreSQL and MariaDB port fallback behavior in metadata resolution
+- runtime PostgreSQL client packaging refreshed via the PostgreSQL APT repository for newer server compatibility
+- shared label-selected dump execution strategy with remote-exec-first auto mode and local fallback for PostgreSQL and MariaDB
+- generic `backup_agent.*` metadata labels with backward-compatible legacy label support
+- MariaDB/MySQL-family env alias support via both `MARIADB_*` and `MYSQL_*`
 - structured logging, health checks, run summaries, and console-visible run error reporting
 - containerization and example Docker Compose deployment
 
@@ -39,13 +43,17 @@ Primary runtime modules now live under `src/backup_agent/`:
 - The scheduler is internal to the application and does not depend on OS cron.
 - Backup providers use secret-safe execution patterns:
   - PostgreSQL via `PGPASSWORD`
-  - MariaDB via a temporary defaults file
+  - MariaDB via a temporary defaults file locally or `MYSQL_PWD` for remote exec inside the target container
 - Local backups are written into isolated run directories under `/backup/runs/<run-id>/`.
 - Manifests are JSON and intentionally omit secrets.
 - Logs use stable `key=value` event formatting with secret masking.
 - Health checks are deterministic and do not trigger backup side effects.
 - The container image installs the external tools needed by the providers: `pg_dump`, `pg_dumpall`, `mariadb-dump`, and `rsync`.
+- PostgreSQL client tooling is now sourced from the PostgreSQL APT repository so the runtime can back up newer PostgreSQL servers such as PostgreSQL 17.
 - Storage backend selection is configuration-driven: mounted local directory publishing and rsync are independent backends that can be enabled separately or together.
+- Database dump execution strategy is label-driven through `backup_agent.dump_method` with `auto`, `exec`, and `local` modes; `auto` prefers Docker exec inside the target container and falls back to local execution.
+- Metadata resolution now prefers generic `backup_agent.*` labels while temporarily retaining compatibility with legacy engine-specific labels.
+- MySQL-family metadata is accepted from both `MARIADB_*` and `MYSQL_*` environment variable families and routes through the MariaDB provider path.
 
 ## Delivered task trail
 
@@ -66,6 +74,9 @@ Implementation notes for each task were written to:
 - `.pi/done/16-cleanup-temporary-staging-after-successful-publish.md`
 - `.pi/done/17-default-database-port-fallbacks.md`
 - `.pi/done/18-console-error-reporting-for-export-and-upload-failures.md`
+- `.pi/done/19-postgresql-client-version-compatibility.md`
+- `.pi/done/20-database-remote-exec-with-label-selected-strategy.md`
+- `.pi/done/21-generic-backup-agent-labels-and-mysql-mariadb-env-aliases.md`
 
 ## Known trade-offs / follow-up candidates
 
@@ -75,10 +86,10 @@ Implementation notes for each task were written to:
 - Health checks are minimal by design and currently only verify process status, local writeability, and Docker API reachability.
 - `BACKUP_TIME` is still a required config value in the current implementation. Task 14 remains intentionally pending and would make scheduled time optional, add immediate-run fallback semantics, switch the default staging path to `/temporary_storage`, and inherit `TZ` from the process environment when available.
 - Console-visible run error reporting is currently emitted as structured `run_error` events after the run completes. If operators later need richer console diagnostics, a follow-up could reintroduce sanitized `stderr` excerpts or add dedicated debug-mode error expansion.
+- Remote gzip for container-exec dump paths remains unimplemented; the current remote-exec strategy streams raw dump output and relies on existing artifact formats.
+- Generic labels are now preferred, but the implementation intentionally still accepts legacy engine-specific labels during the migration window.
+- PostgreSQL output-format selection is not yet configurable; a follow-up task is planned to allow `backup_agent.dump_format=binary|sql_gzip|both`, with explicit handling for the `all_databases` caveat.
 - Metrics endpoints are not yet implemented.
-- PostgreSQL runtime packaging currently needs a compatibility follow-up for newer PostgreSQL server versions. A real PostgreSQL 17 backup failed because the image contains `pg_dump` 15.x from Debian bookworm; Task 19 tracks upgrading the packaged `pg_dump` / `pg_dumpall` toolchain to the newest practical version.
-- A further database execution follow-up is planned in Task 20: support shared label-selected dump method control via `backup_agent.dump_method`, applying to PostgreSQL and MariaDB with default `auto` behavior that tries Docker exec inside the target database container first and falls back to local execution if exec fails.
-- Metadata simplification is planned in Task 21: migrate from engine-specific `backup_agent.pg*` / `backup_agent.mariadb*` labels to generic `backup_agent.*` labels, infer engine type from env-variable families, and accept both `MARIADB_*` and `MYSQL_*` variables for MySQL-family targets.
 - Restore workflows, encryption, notifications, and additional storage backends remain future work.
 
 ## Recommended next steps
@@ -86,9 +97,9 @@ Implementation notes for each task were written to:
 If the project moves into phase 2, the most valuable follow-up areas are:
 
 1. decide whether Task 14 should remain deferred or be implemented as a product behavior change
-2. upgrade packaged PostgreSQL dump tools to the newest practical version (Task 19)
-3. add database remote-exec dump strategy for PostgreSQL and MariaDB with shared label-selected method and exec-to-local fallback (Task 20)
-4. simplify metadata labels and add MySQL/MariaDB env alias support (Task 21)
+2. decide whether remote gzip should be added to the container-exec dump path
+3. add PostgreSQL output-format selection via `backup_agent.dump_format`, including explicit `all_databases` handling (Task 22)
+4. clean up README and compose examples so they advertise only the generic `backup_agent.*` label model
 5. hardening secret handling and deployment security
 6. improving retry and failure recovery behavior
 7. adding an HTTP health/metrics endpoint if operationally useful

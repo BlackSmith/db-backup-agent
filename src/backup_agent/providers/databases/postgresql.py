@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import contextlib
+import gzip
+import shutil
 from pathlib import Path
 
 from backup_agent.domain.artifact import BackupArtifact
@@ -18,6 +20,18 @@ from .base import (
     SubprocessCommandExecutor,
     resolve_dump_method,
 )
+
+
+_POSTGRESQL_BINARY_FORMAT = {
+    "artifact_format": "postgresql-custom",
+    "dump_flag": "-Fc",
+    "extension": ".dump",
+}
+_POSTGRESQL_SQL_GZIP_FORMAT = {
+    "artifact_format": "postgresql-sql-gzip",
+    "dump_flag": "-Fp",
+    "extension": ".sql.gz",
+}
 
 
 class PostgreSQLBackupProvider(DatabaseBackupProvider):
@@ -54,22 +68,50 @@ class PostgreSQLBackupProvider(DatabaseBackupProvider):
         provider_dir.mkdir(parents=True, exist_ok=True)
 
         dump_method = resolve_dump_method(target.labels)
+        requested_formats, format_errors = self._resolve_dump_formats(target)
         artifacts: list[BackupArtifact] = []
-        errors: list[BackupProviderError] = []
+        errors: list[BackupProviderError] = list(format_errors)
+
+        if format_errors:
+            return BackupProviderResult(
+                provider=self.db_type,
+                target=target,
+                status=_result_status(artifacts, errors),
+                artifacts=artifacts,
+                errors=errors,
+            )
 
         if target.all_databases:
-            output_path = provider_dir / "all-databases.sql"
-            artifact, command_errors = self._backup_all_databases(target, output_path, dump_method)
-            if artifact is not None:
-                artifacts.append(artifact)
-            errors.extend(command_errors)
-        else:
-            for database in target.databases:
-                output_path = provider_dir / f"{_safe_name(database)}.dump"
-                artifact, command_errors = self._backup_database(target, database, output_path, dump_method)
+            for dump_format in requested_formats:
+                artifact, command_errors = self._backup_all_databases(
+                    target,
+                    provider_dir,
+                    dump_method,
+                    dump_format,
+                )
                 if artifact is not None:
                     artifacts.append(artifact)
                 errors.extend(command_errors)
+        else:
+            for database in target.databases:
+                for dump_format in requested_formats:
+                    if dump_format == "binary":
+                        artifact, command_errors = self._backup_database_binary(
+                            target,
+                            database,
+                            provider_dir,
+                            dump_method,
+                        )
+                    else:
+                        artifact, command_errors = self._backup_database_sql_gzip(
+                            target,
+                            database,
+                            provider_dir,
+                            dump_method,
+                        )
+                    if artifact is not None:
+                        artifacts.append(artifact)
+                    errors.extend(command_errors)
 
         return BackupProviderResult(
             provider=self.db_type,
@@ -79,25 +121,15 @@ class PostgreSQLBackupProvider(DatabaseBackupProvider):
             errors=errors,
         )
 
-    def _backup_database(
+    def _backup_database_binary(
         self,
         target: BackupTarget,
         database: str,
-        output_path: Path,
+        provider_dir: Path,
         dump_method: str,
     ) -> tuple[BackupArtifact | None, list[BackupProviderError]]:
-        remote_command = [
-            "pg_dump",
-            "-Fc",
-            "-U",
-            target.user or "",
-            "-h",
-            target.host,
-            "-p",
-            str(target.port),
-            "-d",
-            database,
-        ]
+        output_path = provider_dir / f"{_safe_name(database)}.dump"
+        remote_command = self._build_pg_dump_command(target, database, _POSTGRESQL_BINARY_FORMAT["dump_flag"])
         local_command = remote_command + ["-f", str(output_path)]
         local_env = {"PGPASSWORD": target.password or ""}
         remote_env = {"PGPASSWORD": target.password or ""}
@@ -111,31 +143,83 @@ class PostgreSQLBackupProvider(DatabaseBackupProvider):
             local_env=local_env,
             remote_command=remote_command,
             remote_env=remote_env,
-            format_name="postgresql-custom",
+            format_name=_POSTGRESQL_BINARY_FORMAT["artifact_format"],
         )
+
+    def _backup_database_sql_gzip(
+        self,
+        target: BackupTarget,
+        database: str,
+        provider_dir: Path,
+        dump_method: str,
+    ) -> tuple[BackupArtifact | None, list[BackupProviderError]]:
+        final_output_path = provider_dir / f"{_safe_name(database)}.sql.gz"
+        plain_output_path = final_output_path.with_suffix("")
+        remote_command = self._build_pg_dump_command(target, database, _POSTGRESQL_SQL_GZIP_FORMAT["dump_flag"])
+        local_command = remote_command + ["-f", str(plain_output_path)]
+        local_env = {"PGPASSWORD": target.password or ""}
+        remote_env = {"PGPASSWORD": target.password or ""}
+        artifact, errors = self._run_with_strategy(
+            target=target,
+            command_name="pg_dump",
+            output_path=plain_output_path,
+            database=database,
+            dump_method=dump_method,
+            local_command=local_command,
+            local_env=local_env,
+            remote_command=remote_command,
+            remote_env=remote_env,
+            format_name="postgresql-sql",
+        )
+        if artifact is None:
+            with contextlib.suppress(FileNotFoundError):
+                plain_output_path.unlink()
+            return None, errors
+
+        try:
+            _gzip_file(plain_output_path, final_output_path)
+        except OSError as exc:
+            errors.append(
+                BackupProviderError(
+                    message=f"gzip compression failed for PostgreSQL database {database!r}: {exc}",
+                    output_path=final_output_path,
+                    database=database,
+                )
+            )
+            return None, errors
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                plain_output_path.unlink()
+
+        return _artifact_for(target, final_output_path, database, _POSTGRESQL_SQL_GZIP_FORMAT["artifact_format"]), errors
 
     def _backup_all_databases(
         self,
         target: BackupTarget,
-        output_path: Path,
+        provider_dir: Path,
         dump_method: str,
+        dump_format: str,
     ) -> tuple[BackupArtifact | None, list[BackupProviderError]]:
-        remote_command = [
-            "pg_dumpall",
-            "-U",
-            target.user or "",
-            "-h",
-            target.host,
-            "-p",
-            str(target.port),
-        ]
-        local_command = remote_command + ["-f", str(output_path)]
+        if dump_format != "sql_gzip":
+            return None, [
+                BackupProviderError(
+                    message=(
+                        "PostgreSQL cluster-wide backups only support backup_agent.dump_format=sql_gzip; "
+                        "binary custom format is not available for all_databases=True"
+                    ),
+                )
+            ]
+
+        final_output_path = provider_dir / "all-databases.sql.gz"
+        plain_output_path = final_output_path.with_suffix("")
+        remote_command = self._build_pg_dumpall_command(target)
+        local_command = remote_command + ["-f", str(plain_output_path)]
         local_env = {"PGPASSWORD": target.password or ""}
         remote_env = {"PGPASSWORD": target.password or ""}
-        return self._run_with_strategy(
+        artifact, errors = self._run_with_strategy(
             target=target,
             command_name="pg_dumpall",
-            output_path=output_path,
+            output_path=plain_output_path,
             database=None,
             dump_method=dump_method,
             local_command=local_command,
@@ -144,6 +228,89 @@ class PostgreSQLBackupProvider(DatabaseBackupProvider):
             remote_env=remote_env,
             format_name="postgresql-sql",
         )
+        if artifact is None:
+            with contextlib.suppress(FileNotFoundError):
+                plain_output_path.unlink()
+            return None, errors
+
+        try:
+            _gzip_file(plain_output_path, final_output_path)
+        except OSError as exc:
+            errors.append(
+                BackupProviderError(
+                    message=f"gzip compression failed for PostgreSQL all-databases backup: {exc}",
+                    output_path=final_output_path,
+                )
+            )
+            return None, errors
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                plain_output_path.unlink()
+
+        return _artifact_for(target, final_output_path, None, _POSTGRESQL_SQL_GZIP_FORMAT["artifact_format"]), errors
+
+    def _build_pg_dump_command(
+        self,
+        target: BackupTarget,
+        database: str,
+        dump_flag: str,
+    ) -> list[str]:
+        return [
+            "pg_dump",
+            dump_flag,
+            "-U",
+            target.user or "",
+            "-h",
+            target.host,
+            "-p",
+            str(target.port),
+            "-d",
+            database,
+        ]
+
+    def _build_pg_dumpall_command(self, target: BackupTarget) -> list[str]:
+        return [
+            "pg_dumpall",
+            "-U",
+            target.user or "",
+            "-h",
+            target.host,
+            "-p",
+            str(target.port),
+        ]
+
+    def _resolve_dump_formats(self, target: BackupTarget) -> tuple[list[str], list[BackupProviderError]]:
+        raw_value = str(target.labels.get("backup_agent.dump_format", "")).strip().lower()
+
+        if target.all_databases:
+            if not raw_value or raw_value == "sql_gzip":
+                return ["sql_gzip"], []
+            if raw_value in {"binary", "both"}:
+                return [], [
+                    BackupProviderError(
+                        message=(
+                            "PostgreSQL cluster-wide backups only support backup_agent.dump_format=sql_gzip; "
+                            "binary custom format is not available for all_databases=True"
+                        ),
+                    )
+                ]
+            return [], [
+                BackupProviderError(
+                    message=(
+                        f"Unsupported PostgreSQL dump format {raw_value!r}; expected binary, sql_gzip, or both"
+                    ),
+                )
+            ]
+
+        if not raw_value or raw_value == "both":
+            return ["binary", "sql_gzip"], []
+        if raw_value in {"binary", "sql_gzip"}:
+            return [raw_value], []
+        return [], [
+            BackupProviderError(
+                message=f"Unsupported PostgreSQL dump format {raw_value!r}; expected binary, sql_gzip, or both",
+            )
+        ]
 
     def _run_with_strategy(
         self,
@@ -195,7 +362,7 @@ class PostgreSQLBackupProvider(DatabaseBackupProvider):
         output_path: Path,
         database: str | None,
         command_name: str,
-    ) -> tuple[object | None, BackupProviderError | None]:
+    ) -> tuple[CommandResult | None, BackupProviderError | None]:
         if self.docker_client is None:
             return None, BackupProviderError(
                 message=f"remote {command_name} failed: remote exec is unavailable",
@@ -283,6 +450,17 @@ def _safe_name(value: str) -> str:
 
 def _temporary_output_path(output_path: Path) -> Path:
     return output_path.with_name(f".{output_path.name}.tmp")
+
+
+def _gzip_file(source_path: Path, output_path: Path) -> None:
+    temp_output_path = _temporary_output_path(output_path)
+    try:
+        with source_path.open("rb") as source, gzip.open(temp_output_path, "wb") as destination:
+            shutil.copyfileobj(source, destination)
+        temp_output_path.replace(output_path)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            temp_output_path.unlink()
 
 
 def _decode_bytes(chunks: list[bytes]) -> str:
