@@ -16,6 +16,7 @@ from backup_agent.domain.backup_run import BackupRun
 from backup_agent.domain.run_summary import RunSummary
 from backup_agent.infrastructure.logging import configure_logging, log_event
 from backup_agent.interfaces.health import check_liveness, check_readiness
+from backup_agent.providers.storage import LocalDirectoryStorageProvider
 from backup_agent.services.orchestrator import BackupOrchestratorService
 
 
@@ -81,21 +82,26 @@ class FakeProvider:
 
 
 class FakeStorage:
-    def __init__(self) -> None:
+    def __init__(self, *, sync_status: str = "success", cleanup_status: str = "success") -> None:
         self.synced = False
         self.cleaned = False
+        self.sync_status = sync_status
+        self.cleanup_status = cleanup_status
 
     def sync(self, local_path: Path, remote_path: str | None = None):
-        from backup_agent.providers.storage.base import RemoteSyncResult
+        from backup_agent.providers.storage.base import RemoteStorageError, RemoteSyncResult
 
         self.synced = True
-        return RemoteSyncResult(status="success", local_path=local_path, remote_destination="backup@nas::backups/runs/test")
+        error = None
+        if self.sync_status != "success":
+            error = RemoteStorageError(message="storage sync failed", local_path=local_path, remote_destination="backup@nas::backups/runs/test")
+        return RemoteSyncResult(status=self.sync_status, local_path=local_path, remote_destination="backup@nas::backups/runs/test", error=error)
 
     def cleanup(self, local_path: Path, retention_days: int):
         from backup_agent.providers.storage.base import RemoteCleanupResult
 
         self.cleaned = True
-        return RemoteCleanupResult(status="success", local_path=local_path, remote_destination="backup@nas::backups")
+        return RemoteCleanupResult(status=self.cleanup_status, local_path=local_path, remote_destination="backup@nas::backups")
 
 
 class FakeRetention:
@@ -156,6 +162,79 @@ class HealthAndOrchestratorTests(unittest.TestCase):
     def test_orchestrator_returns_summary_and_writes_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as mounted_dir:
             config = AppConfig(
+                backup_time=datetime.strptime("02:00", "%H:%M").time(),
+                backup_retention_days=7,
+                backup_local_storage=Path(mounted_dir),
+                local_backup_dir=Path(temp_dir),
+            )
+            orchestrator = BackupOrchestratorService(
+                config=config,
+                discovery=FakeDiscovery(),
+                resolver=FakeResolver(),
+                database_providers=[FakeProvider()],
+                remote_storage=LocalDirectoryStorageProvider(storage_root=Path(mounted_dir)),
+                retention=FakeRetention(),
+            )
+            run = orchestrator.run_once()
+
+            self.assertEqual(run.status, "success")
+            summary = RunSummary.from_backup_run(run)
+            self.assertEqual(summary.artifact_count, 1)
+            self.assertEqual(summary.error_count, 0)
+            self.assertFalse((Path(temp_dir) / "runs" / run.run_id).exists())
+            self.assertFalse((Path(temp_dir) / "latest").exists())
+            self.assertTrue((Path(mounted_dir) / "runs" / run.run_id / "manifest.json").exists())
+            self.assertTrue((Path(mounted_dir) / "runs" / run.run_id / "postgresql" / "postgres-app" / "appdb.dump").exists())
+
+    def test_orchestrator_cleans_up_staging_when_only_local_storage_is_configured(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as mounted_dir:
+            config = AppConfig(
+                backup_time=datetime.strptime("02:00", "%H:%M").time(),
+                backup_retention_days=7,
+                backup_local_storage=Path(mounted_dir),
+                local_backup_dir=Path(temp_dir),
+            )
+            orchestrator = BackupOrchestratorService(
+                config=config,
+                discovery=FakeDiscovery(),
+                resolver=FakeResolver(),
+                database_providers=[FakeProvider()],
+                remote_storage=FakeStorage(),
+                retention=FakeRetention(),
+            )
+            run = orchestrator.run_once()
+
+            self.assertEqual(run.status, "success")
+            self.assertFalse((Path(temp_dir) / "runs" / run.run_id).exists())
+            self.assertFalse((Path(temp_dir) / "latest").exists())
+
+    def test_orchestrator_cleans_up_staging_when_only_rsync_is_configured(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = AppConfig(
+                rsync_remote_host="nas.local",
+                rsync_remote_user="backup",
+                rsync_remote_password="secret",
+                backup_time=datetime.strptime("02:00", "%H:%M").time(),
+                backup_retention_days=7,
+                local_backup_dir=Path(temp_dir),
+            )
+            orchestrator = BackupOrchestratorService(
+                config=config,
+                discovery=FakeDiscovery(),
+                resolver=FakeResolver(),
+                database_providers=[FakeProvider()],
+                remote_storage=FakeStorage(),
+                retention=FakeRetention(),
+            )
+            run = orchestrator.run_once()
+
+            self.assertEqual(run.status, "success")
+            self.assertFalse((Path(temp_dir) / "runs" / run.run_id).exists())
+            self.assertFalse((Path(temp_dir) / "latest").exists())
+
+    def test_orchestrator_cleans_up_staging_when_both_storage_backends_are_configured(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as mounted_dir:
+            config = AppConfig(
                 rsync_remote_host="nas.local",
                 rsync_remote_user="backup",
                 rsync_remote_password="secret",
@@ -175,15 +254,15 @@ class HealthAndOrchestratorTests(unittest.TestCase):
             run = orchestrator.run_once()
 
             self.assertEqual(run.status, "success")
-            summary = RunSummary.from_backup_run(run)
-            self.assertEqual(summary.artifact_count, 1)
-            self.assertEqual(summary.error_count, 0)
-            manifest = Path(temp_dir) / "runs" / run.run_id / "manifest.json"
-            self.assertTrue(manifest.exists())
+            self.assertFalse((Path(temp_dir) / "runs" / run.run_id).exists())
+            self.assertFalse((Path(temp_dir) / "latest").exists())
 
-    def test_orchestrator_cleans_up_staging_when_no_local_storage_backend_is_configured(self) -> None:
+    def test_orchestrator_preserves_staging_when_publish_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             config = AppConfig(
+                rsync_remote_host="nas.local",
+                rsync_remote_user="backup",
+                rsync_remote_password="secret",
                 backup_time=datetime.strptime("02:00", "%H:%M").time(),
                 backup_retention_days=7,
                 local_backup_dir=Path(temp_dir),
@@ -193,14 +272,13 @@ class HealthAndOrchestratorTests(unittest.TestCase):
                 discovery=FakeDiscovery(),
                 resolver=FakeResolver(),
                 database_providers=[FakeProvider()],
-                remote_storage=FakeStorage(),
+                remote_storage=FakeStorage(sync_status="failed"),
                 retention=FakeRetention(),
             )
             run = orchestrator.run_once()
 
-            self.assertEqual(run.status, "success")
-            self.assertFalse((Path(temp_dir) / "runs").exists())
-            self.assertFalse((Path(temp_dir) / "latest").exists())
+            self.assertNotEqual(run.status, "success")
+            self.assertTrue((Path(temp_dir) / "runs" / run.run_id).exists())
 
 
 if __name__ == "__main__":

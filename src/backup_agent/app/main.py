@@ -8,8 +8,13 @@ from collections.abc import Sequence
 from backup_agent.app.config import AppConfig, ConfigError
 from backup_agent.domain.run_summary import RunSummary
 from backup_agent.domain.status import STATUS_SUCCESS
+from backup_agent.infrastructure.docker import DockerApiClient
 from backup_agent.infrastructure.logging import configure_logging, log_config_validation, log_event
 from backup_agent.interfaces.cli import build_parser
+from backup_agent.providers.storage import build_storage_provider
+from backup_agent.services.discovery import DockerContainerDiscovery
+from backup_agent.services.metadata_resolver import ContainerMetadataResolver
+from backup_agent.services.orchestrator import BackupOrchestratorService
 from backup_agent.services.scheduler import DailyScheduler
 
 
@@ -24,12 +29,8 @@ def run_once(config: AppConfig | None = None, orchestrator: object | None = None
     log_config_validation(logger, effective_config)
     log_event(logger, "application_start", mode="run_once")
 
-    if orchestrator is None:
-        log_event(logger, "run_summary", status="success", target_count=0, artifact_count=0, error_count=0)
-        logger.info("No backup orchestrator is configured yet; skipping backup execution.")
-        return 0
-
-    result = orchestrator.run_once()
+    active_orchestrator = orchestrator or build_orchestrator(effective_config)
+    result = active_orchestrator.run_once()
     summary = _coerce_summary(result)
     log_event(
         logger,
@@ -50,6 +51,7 @@ def run_scheduler(config: AppConfig | None = None, orchestrator: object | None =
     configure_logging(effective_config.log_level)
     log_config_validation(logger, effective_config)
     log_event(logger, "application_start", mode="scheduler")
+    active_orchestrator = orchestrator or build_orchestrator(effective_config)
     scheduler = DailyScheduler(
         backup_time=effective_config.backup_time,
         timezone=effective_config.timezone,
@@ -59,8 +61,23 @@ def run_scheduler(config: AppConfig | None = None, orchestrator: object | None =
         "scheduler_started",
         next_run=scheduler.next_run_after().isoformat(),
     )
-    scheduler.schedule(lambda: run_once(effective_config, orchestrator))
+    scheduler.schedule(lambda: run_once(effective_config, active_orchestrator))
     return 0
+
+
+def build_orchestrator(config: AppConfig) -> BackupOrchestratorService:
+    """Build the real orchestrator used by the CLI runtime."""
+
+    docker_client = DockerApiClient(config.docker_socket_path)
+    discovery = DockerContainerDiscovery(docker_client)
+    resolver = ContainerMetadataResolver()
+    remote_storage = build_storage_provider(config)
+    return BackupOrchestratorService(
+        config=config,
+        discovery=discovery,
+        resolver=resolver,
+        remote_storage=remote_storage,
+    )
 
 
 def _coerce_summary(result: object) -> RunSummary:

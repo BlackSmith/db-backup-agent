@@ -65,6 +65,9 @@ Implementation notes for each task were written to:
 - Mounted local storage is now supported but the storage abstraction is still named `RemoteStorageProvider`; a future cleanup may rename it to `StorageProvider`.
 - The orchestrator currently integrates discovery, backup, sync, retention, manifest writing, and logging in a single service; this is acceptable for MVP but could be split later if complexity grows.
 - Health checks are minimal by design and currently only verify process status, local writeability, and Docker API reachability.
+- `BACKUP_TIME` is still a required config value in the current implementation; Task 14 plans to make it optional with an immediate-run fallback, switch the default staging path to `/temporary_storage`, and inherit `TZ` from the process environment when available.
+- The CLI/runtime bootstrap still appears to use a placeholder no-op path when no orchestrator is injected; Task 15 is intended to complete real runtime wiring and validate a live local-storage backup against the mounted Docker socket.
+- Temporary staging cleanup after successful publish is still a follow-up concern; Task 16 is intended to ensure `LOCAL_BACKUP_DIR` is cleaned after successful local-storage and/or NAS publication while preserving staging on failed or partial runs.
 - Metrics endpoints are not yet implemented.
 - Restore workflows, encryption, notifications, and additional storage backends remain future work.
 

@@ -90,6 +90,7 @@ class BackupOrchestratorService:
                 self._finish_run(run, layout)
                 return run
 
+            self._finish_run(run, layout)
             sync_result = self.remote_storage.sync(layout.run_dir)
             log_event(
                 self.logger,
@@ -155,7 +156,7 @@ class BackupOrchestratorService:
                 run.status = STATUS_PARTIAL
 
             self._finish_run(run, layout)
-            if not self.config.uses_local_storage and run.status == STATUS_SUCCESS:
+            if run.status == STATUS_SUCCESS:
                 try:
                     self.staging.cleanup_run_tree(layout)
                 except OSError as exc:

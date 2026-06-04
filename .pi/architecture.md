@@ -135,21 +135,22 @@ Storage backends may be configured independently or together.
 Recommended extensions:
 
 - `RSYNC_REMOTE_PATH`
-- `LOCAL_BACKUP_DIR=/backup`
-- `TZ=Europe/Prague`
+- `LOCAL_BACKUP_DIR=/temporary_storage`
+- `TZ` inherited from the process environment when available, otherwise `UTC`
 - `LOG_LEVEL=info`
 - `DOCKER_SOCKET_PATH=/var/run/docker.sock`
 
 Validation rules:
 
-- `BACKUP_TIME` must be in `HH:MM`
+- `BACKUP_TIME` is optional; when provided it must be in `HH:MM`
+- when `BACKUP_TIME` is omitted, the application should use immediate-run mode instead of failing config validation
 - `BACKUP_RETENTION_DAYS >= 1`
 - remote sync credentials must be present when rsync publishing is enabled
 - local backup directory must exist or be creatable
 
 ### 5.2 Scheduler
 
-Responsible for triggering one backup run per day.
+Responsible for triggering one backup run per day when `BACKUP_TIME` is configured, or an immediate run when it is omitted.
 
 Recommended approach:
 
@@ -165,9 +166,9 @@ Benefits:
 
 Scheduler behavior:
 
-1. compute next execution time from `BACKUP_TIME`
-2. trigger the backup orchestrator
-3. schedule the next daily execution
+1. if `BACKUP_TIME` is configured, compute the next execution time from it
+2. if `BACKUP_TIME` is omitted, trigger the backup orchestrator immediately and return without entering the daily wait loop
+3. if `BACKUP_TIME` is configured, continue with the next daily execution
 
 ### 5.3 Container Discovery
 

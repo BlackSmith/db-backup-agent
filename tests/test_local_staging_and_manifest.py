@@ -49,6 +49,22 @@ class LocalStagingAndManifestTests(unittest.TestCase):
             artifact_dir = staging.artifact_directory_for(layout.run_dir, self._target())
             self.assertEqual(artifact_dir, layout.run_dir / "postgresql" / "postgres-app")
 
+    def test_cleanup_run_tree_removes_current_run_and_updates_latest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            staging = LocalStagingManager(Path(temp_dir))
+            older = staging.create_run("20260603T090000Z-aaaa1111")
+            newer = staging.create_run("20260603T100000Z-bbbb2222")
+
+            staging.cleanup_run_tree(newer)
+
+            self.assertTrue(older.run_dir.exists())
+            self.assertFalse(newer.run_dir.exists())
+            latest = Path(temp_dir) / "latest"
+            if latest.is_symlink():
+                self.assertEqual(latest.readlink(), Path("runs") / older.run_id)
+            else:
+                self.assertEqual(latest.read_text(encoding="utf-8"), f"runs/{older.run_id}")
+
     def test_generate_run_id_is_time_ordered_and_safe(self) -> None:
         run_id = generate_run_id(datetime(2026, 6, 3, 9, 15, tzinfo=timezone.utc))
         self.assertTrue(run_id.startswith("20260603T091500Z-"))

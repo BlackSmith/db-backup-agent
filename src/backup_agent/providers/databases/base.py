@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -46,9 +47,14 @@ class SubprocessCommandExecutor:
         env: Mapping[str, str] | None = None,
         cwd: str | Path | None = None,
     ) -> CommandResult:
+        merged_env = None
+        if env is not None:
+            merged_env = dict(os.environ)
+            merged_env.update(env)
+
         completed = subprocess.run(
             list(command),
-            env=dict(env) if env is not None else None,
+            env=merged_env,
             cwd=str(cwd) if cwd is not None else None,
             capture_output=True,
             text=True,

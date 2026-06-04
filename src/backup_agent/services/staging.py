@@ -59,13 +59,43 @@ class LocalStagingManager:
     def cleanup_run_tree(self, layout: RunLayout) -> None:
         """Remove the staged run tree after a successful publish."""
 
-        try:
-            if layout.latest_path.exists() or layout.latest_path.is_symlink():
-                layout.latest_path.unlink()
-        except OSError:
-            pass
+        if layout.run_dir.exists():
+            shutil.rmtree(layout.run_dir)
 
-        shutil.rmtree(layout.runs_root)
+        remaining_run_dirs = self._remaining_run_dirs(layout.runs_root)
+        self._update_latest_from_remaining(layout.backup_root, remaining_run_dirs)
+
+        if not remaining_run_dirs:
+            try:
+                layout.runs_root.rmdir()
+            except OSError:
+                pass
+
+    def _remaining_run_dirs(self, runs_root: Path) -> list[Path]:
+        if not runs_root.exists():
+            return []
+        return sorted(
+            [path for path in runs_root.iterdir() if path.is_dir() and not path.name.startswith(".")],
+            key=lambda path: path.name,
+        )
+
+    def _update_latest_from_remaining(self, backup_root: Path, retained_run_dirs: list[Path]) -> None:
+        latest = backup_root / self.latest_name
+        if not retained_run_dirs:
+            if latest.exists() or latest.is_symlink():
+                try:
+                    latest.unlink()
+                except OSError:
+                    pass
+            return
+
+        target = Path(self.runs_dir_name) / retained_run_dirs[-1].name
+        try:
+            if latest.exists() or latest.is_symlink():
+                latest.unlink()
+            latest.symlink_to(target)
+        except OSError:
+            latest.write_text(str(target), encoding="utf-8")
 
     def _update_latest(self, layout: RunLayout) -> None:
         """Maintain a latest pointer when the filesystem allows it."""
