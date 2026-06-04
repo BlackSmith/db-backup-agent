@@ -280,6 +280,90 @@ class HealthAndOrchestratorTests(unittest.TestCase):
             self.assertNotEqual(run.status, "success")
             self.assertTrue((Path(temp_dir) / "runs" / run.run_id).exists())
 
+    def test_log_event_reports_run_errors_without_secrets(self) -> None:
+        stream = io.StringIO()
+        handler = logging.StreamHandler(stream)
+        module_logger = logging.getLogger("backup_agent.app.main")
+        original_handlers = list(module_logger.handlers)
+        original_level = module_logger.level
+        original_propagate = module_logger.propagate
+        module_logger.handlers = [handler]
+        module_logger.setLevel(logging.INFO)
+        module_logger.propagate = False
+
+        from backup_agent.app.main import _log_run_errors
+        from backup_agent.domain.backup_run import BackupRunError
+
+        class FakeResult:
+            run_id = "run-123"
+            errors = [
+                BackupRunError(
+                    source="provider",
+                    message="pg_dump failed with exit code 1",
+                    stderr="password=secret should not appear",
+                    target_container_name="postgres-app",
+                    database="appdb",
+                )
+            ]
+
+        try:
+            _log_run_errors(FakeResult())
+            handler.flush()
+            output = stream.getvalue()
+            self.assertIn("event=run_error", output)
+            self.assertIn("source=provider", output)
+            self.assertIn("message=pg_dump failed with exit code 1", output)
+            self.assertIn("target_container_name=postgres-app", output)
+            self.assertIn("database=appdb", output)
+            self.assertIn("output_path=None", output)
+            self.assertNotIn("should not appear", output)
+            self.assertNotIn("stderr=", output)
+        finally:
+            module_logger.handlers = original_handlers
+            module_logger.setLevel(original_level)
+            module_logger.propagate = original_propagate
+
+    def test_log_event_reports_publish_errors_without_secrets(self) -> None:
+        stream = io.StringIO()
+        handler = logging.StreamHandler(stream)
+        module_logger = logging.getLogger("backup_agent.app.main")
+        original_handlers = list(module_logger.handlers)
+        original_level = module_logger.level
+        original_propagate = module_logger.propagate
+        module_logger.handlers = [handler]
+        module_logger.setLevel(logging.INFO)
+        module_logger.propagate = False
+
+        from backup_agent.app.main import _log_run_errors
+        from backup_agent.domain.backup_run import BackupRunError
+
+        class FakeResult:
+            run_id = "run-456"
+            errors = [
+                BackupRunError(
+                    source="sync",
+                    message="local storage publish failed",
+                    stderr="--password-file=/tmp/secret.txt",
+                )
+            ]
+
+        try:
+            _log_run_errors(FakeResult())
+            handler.flush()
+            output = stream.getvalue()
+            self.assertIn("event=run_error", output)
+            self.assertIn("source=sync", output)
+            self.assertIn("message=local storage publish failed", output)
+            self.assertIn("run_id=run-456", output)
+            self.assertIn("run_id=run-456", output)
+            self.assertIn("message=local storage publish failed", output)
+            self.assertNotIn("secret.txt", output)
+            self.assertNotIn("stderr=", output)
+        finally:
+            module_logger.handlers = original_handlers
+            module_logger.setLevel(original_level)
+            module_logger.propagate = original_propagate
+
 
 if __name__ == "__main__":
     unittest.main()

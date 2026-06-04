@@ -143,6 +143,7 @@ class ContainerMetadataResolver(MetadataResolver):
             user=user,
             host=host,
             port_value=port_value,
+            default_port=5432,
             password_value=password_value,
             password_ref=password_ref,
             databases=databases,
@@ -182,6 +183,7 @@ class ContainerMetadataResolver(MetadataResolver):
             user=user,
             host=host,
             port_value=port_value,
+            default_port=3306,
             password_value=password_value,
             password_ref=password_ref,
             databases=databases,
@@ -197,6 +199,7 @@ class ContainerMetadataResolver(MetadataResolver):
         user: tuple[str, str] | None,
         host: tuple[str, str] | None,
         port_value: tuple[str, str] | None,
+        default_port: int | None,
         password_value: tuple[str, str] | None,
         password_ref: tuple[str, str] | None,
         databases: list[str],
@@ -204,9 +207,6 @@ class ContainerMetadataResolver(MetadataResolver):
         missing: list[str] = []
         resolved_user = _require_value(user, "user", container_name, container_id, missing)
         resolved_host = _require_value(host, "host", container_name, container_id, missing)
-        resolved_port_raw = _require_value(
-            port_value, "port", container_name, container_id, missing
-        )
         resolved_password = _require_value(
             password_value, "password", container_name, container_id, missing
         )
@@ -214,7 +214,19 @@ class ContainerMetadataResolver(MetadataResolver):
             password_ref, "password", container_name, container_id, missing
         )
 
-        resolved_port = _parse_port(resolved_port_raw, container_name, container_id, missing)
+        if port_value is None:
+            if default_port is None:
+                missing.append("missing port")
+                resolved_port = 0
+            else:
+                resolved_port = default_port
+        else:
+            resolved_port = _parse_port(
+                _require_value(port_value, "port", container_name, container_id, missing),
+                container_name,
+                container_id,
+                missing,
+            )
         if missing:
             raise MetadataResolutionError(
                 f"Container {container_name!r} ({container_id}) has invalid metadata: "

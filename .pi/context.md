@@ -68,6 +68,8 @@ Implementation notes for each task were written to:
 - `BACKUP_TIME` is still a required config value in the current implementation; Task 14 plans to make it optional with an immediate-run fallback, switch the default staging path to `/temporary_storage`, and inherit `TZ` from the process environment when available.
 - The CLI/runtime bootstrap still appears to use a placeholder no-op path when no orchestrator is injected; Task 15 is intended to complete real runtime wiring and validate a live local-storage backup against the mounted Docker socket.
 - Temporary staging cleanup after successful publish is still a follow-up concern; Task 16 is intended to ensure `LOCAL_BACKUP_DIR` is cleaned after successful local-storage and/or NAS publication while preserving staging on failed or partial runs.
+- Metadata resolution still expects explicit DB port metadata; Task 17 is intended to add standard default port fallbacks for PostgreSQL (`5432`) and MariaDB (`3306`).
+- Runtime console logging is still too summary-oriented for export and publish failures; Task 18 is intended to print actionable DB export and upload error reasons directly to the console while preserving secret masking.
 - Metrics endpoints are not yet implemented.
 - Restore workflows, encryption, notifications, and additional storage backends remain future work.
 

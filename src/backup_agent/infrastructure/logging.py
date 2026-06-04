@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from pathlib import Path
@@ -36,7 +37,13 @@ def log_event(logger: logging.Logger, event: str, **fields: Any) -> None:
 
     payload = {"event": event}
     for key, value in fields.items():
-        payload[key] = "***" if _looks_secret(str(key)) else _sanitize_value(value)
+        key_name = str(key)
+        if _looks_secret(key_name):
+            payload[key_name] = "***"
+        elif key_name == "stderr":
+            payload[key_name] = _sanitize_error_text(value)
+        else:
+            payload[key_name] = _sanitize_value(value)
     logger.info(_format_payload(payload))
 
 
@@ -82,6 +89,22 @@ def _sanitize_value(value: Any) -> Any:
 def _looks_secret(key: str) -> bool:
     lowered = key.lower()
     return any(token in lowered for token in _SECRET_KEYS)
+
+
+def _sanitize_error_text(value: Any) -> str:
+    text = str(_sanitize_value(value))
+    for pattern in _ERROR_TEXT_REDACTIONS:
+        text = pattern.sub(r"\1***", text)
+    return text
+
+
+_ERROR_TEXT_REDACTIONS = [
+    re.compile(r"(?i)(password\s*=\s*)([^\s]+)"),
+    re.compile(r"(?i)(pgpassword\s*=\s*)([^\s]+)"),
+    re.compile(r"(?i)(mariadbpassword\s*=\s*)([^\s]+)"),
+    re.compile(r"(?i)(rsync_password\s*=\s*)([^\s]+)"),
+    re.compile(r"(?i)(--password-file=)([^\s]+)"),
+]
 
 
 def _format_payload(payload: dict[str, Any]) -> str:

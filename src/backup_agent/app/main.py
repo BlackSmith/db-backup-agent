@@ -41,6 +41,7 @@ def run_once(config: AppConfig | None = None, orchestrator: object | None = None
         artifact_count=summary.artifact_count,
         error_count=summary.error_count,
     )
+    _log_run_errors(result)
     return 0
 
 
@@ -78,6 +79,26 @@ def build_orchestrator(config: AppConfig) -> BackupOrchestratorService:
         resolver=resolver,
         remote_storage=remote_storage,
     )
+
+
+def _log_run_errors(result: object) -> None:
+    errors = getattr(result, "errors", None)
+    run_id = getattr(result, "run_id", "")
+    if not errors:
+        return
+
+    for error in errors:
+        log_event(
+            logger,
+            "run_error",
+            run_id=run_id,
+            source=getattr(error, "source", "unknown"),
+            message=getattr(error, "message", ""),
+            target_container_name=getattr(error, "target_container_name", ""),
+            target_container_id=getattr(error, "target_container_id", ""),
+            database=getattr(error, "database", ""),
+            output_path=getattr(error, "output_path", ""),
+        )
 
 
 def _coerce_summary(result: object) -> RunSummary:

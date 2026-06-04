@@ -125,6 +125,93 @@ class DockerDiscoveryAndMetadataResolutionTests(unittest.TestCase):
         self.assertEqual(target.databases, [])
         self.assertTrue(target.all_databases)
 
+    def test_postgresql_defaults_to_standard_port_when_missing(self) -> None:
+        resolver = ContainerMetadataResolver()
+        target = resolver.resolve(
+            {
+                "id": "abc123",
+                "name": "/postgres-app",
+                "labels": {
+                    "backup_agent.enabled": "true",
+                    "backup_agent.type": "postgresql",
+                    "backup_agent.pguser": "app",
+                    "backup_agent.pghost": "db",
+                    "backup_agent.pgpassword": "secret",
+                    "backup_agent.pgdatabase": "appdb",
+                },
+                "env": [],
+            }
+        )
+
+        self.assertIsNotNone(target)
+        assert target is not None
+        self.assertEqual(target.port, 5432)
+
+    def test_mariadb_defaults_to_standard_port_when_missing(self) -> None:
+        resolver = ContainerMetadataResolver()
+        target = resolver.resolve(
+            {
+                "id": "def456",
+                "name": "/mariadb-app",
+                "labels": {
+                    "backup_agent.enabled": "true",
+                    "backup_agent.type": "mariadb",
+                    "backup_agent.mariadbuser": "root",
+                    "backup_agent.mariadbhost": "db",
+                    "backup_agent.mariadbpassword": "secret",
+                    "backup_agent.mariadbdatabase": "appdb",
+                },
+                "env": [],
+            }
+        )
+
+        self.assertIsNotNone(target)
+        assert target is not None
+        self.assertEqual(target.port, 3306)
+
+    def test_invalid_explicit_port_values_still_fail_validation(self) -> None:
+        resolver = ContainerMetadataResolver()
+        cases = [
+            (
+                "postgresql",
+                {
+                    "backup_agent.enabled": "true",
+                    "backup_agent.type": "postgresql",
+                    "backup_agent.pguser": "app",
+                    "backup_agent.pghost": "db",
+                    "backup_agent.pgpassword": "secret",
+                    "backup_agent.pgport": "not-a-number",
+                },
+                "POSTGRES_PORT=5432",
+            ),
+            (
+                "mariadb",
+                {
+                    "backup_agent.enabled": "true",
+                    "backup_agent.type": "mariadb",
+                    "backup_agent.mariadbuser": "root",
+                    "backup_agent.mariadbhost": "db",
+                    "backup_agent.mariadbpassword": "secret",
+                    "backup_agent.mariadbport": "",
+                },
+                "MARIADB_PORT=not-a-number",
+            ),
+        ]
+
+        for db_type, labels, env_entry in cases:
+            with self.subTest(db_type=db_type):
+                with self.assertRaises(MetadataResolutionError) as cm:
+                    resolver.resolve(
+                        {
+                            "id": f"{db_type}-1",
+                            "name": f"/{db_type}-app",
+                            "labels": labels,
+                            "env": [env_entry],
+                        }
+                    )
+                self.assertIn("invalid metadata", str(cm.exception))
+                self.assertIn("port", str(cm.exception))
+
     def test_resolver_requires_explicit_type_when_metadata_is_ambiguous(self) -> None:
         resolver = ContainerMetadataResolver()
         with self.assertRaises(MetadataResolutionError) as cm:
