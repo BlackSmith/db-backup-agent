@@ -294,10 +294,10 @@ Current execution strategy behavior:
 
 Planned PostgreSQL format-selection follow-up:
 
-- Task 22 is intended to add `backup_agent.dump_format=binary|sql_gzip|both`
-- for explicit databases, the planned default is to produce both binary custom-format and gzip-compressed SQL artifacts when the label is missing
+- Task 22 adds `backup_agent.dump_format=binary|sql_gzip|both`
+- for explicit databases, the default is to produce both binary custom-format and gzip-compressed SQL artifacts when the label is missing
 - PostgreSQL `all_databases` remains a design caveat because `pg_dumpall` does not produce a single custom-format binary dump equivalent
-- the planned behavior should therefore define an explicit error or restriction rather than silently pretending binary cluster-wide output exists
+- cluster-wide backups intentionally restrict `backup_agent.dump_format` to `sql_gzip` rather than silently pretending binary output exists
 
 #### MariaDB Adapter
 

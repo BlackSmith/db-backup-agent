@@ -1,4 +1,5 @@
 .pi/project.md
+.pi/context_mode/
 __pycache__/
 *.pyc
 *.pyo

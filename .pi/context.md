@@ -19,6 +19,7 @@ Completed implementation areas:
 - default PostgreSQL and MariaDB port fallback behavior in metadata resolution
 - runtime PostgreSQL client packaging refreshed via the PostgreSQL APT repository for newer server compatibility
 - shared label-selected dump execution strategy with remote-exec-first auto mode and local fallback for PostgreSQL and MariaDB
+- PostgreSQL output-format selection through `backup_agent.dump_format` with `binary`, `sql_gzip`, and `both` variants, defaulting to `both` for explicit databases and constraining `all_databases=True` to `sql_gzip`
 - generic `backup_agent.*` metadata labels with backward-compatible legacy label support
 - MariaDB/MySQL-family env alias support via both `MARIADB_*` and `MYSQL_*`
 - structured logging, health checks, run summaries, and console-visible run error reporting
@@ -88,7 +89,7 @@ Implementation notes for each task were written to:
 - Console-visible run error reporting is currently emitted as structured `run_error` events after the run completes. If operators later need richer console diagnostics, a follow-up could reintroduce sanitized `stderr` excerpts or add dedicated debug-mode error expansion.
 - Remote gzip for container-exec dump paths remains unimplemented; the current remote-exec strategy streams raw dump output and relies on existing artifact formats.
 - Generic labels are now preferred, but the implementation intentionally still accepts legacy engine-specific labels during the migration window.
-- PostgreSQL output-format selection is not yet configurable; a follow-up task is planned to allow `backup_agent.dump_format=binary|sql_gzip|both`, with explicit handling for the `all_databases` caveat.
+- PostgreSQL cluster-wide backups intentionally restrict `backup_agent.dump_format` to `sql_gzip` because `pg_dumpall` does not produce a single custom-format binary equivalent.
 - Metrics endpoints are not yet implemented.
 - Restore workflows, encryption, notifications, and additional storage backends remain future work.
 
@@ -98,7 +99,7 @@ If the project moves into phase 2, the most valuable follow-up areas are:
 
 1. decide whether Task 14 should remain deferred or be implemented as a product behavior change
 2. decide whether remote gzip should be added to the container-exec dump path
-3. add PostgreSQL output-format selection via `backup_agent.dump_format`, including explicit `all_databases` handling (Task 22)
+3. surface PostgreSQL format-selection details in operator-facing docs and examples
 4. clean up README and compose examples so they advertise only the generic `backup_agent.*` label model
 5. hardening secret handling and deployment security
 6. improving retry and failure recovery behavior

@@ -29,7 +29,7 @@ COPY src ./src
 
 RUN pip install --no-cache-dir .
 
-VOLUME ["/backup"]
+VOLUME ["/.temporary_storage"]
 
 ENTRYPOINT ["backup-agent"]
 CMD ["--schedule"]

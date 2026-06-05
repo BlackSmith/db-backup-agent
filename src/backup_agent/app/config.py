@@ -31,7 +31,7 @@ class AppConfig:
     backup_retention_days: int = 7
     rsync_remote_path: str = "/backups"
     backup_local_storage: Path | None = None
-    local_backup_dir: Path = field(default_factory=lambda: Path("/backup"))
+    local_backup_dir: Path = field(default_factory=lambda: Path("/.temporary_storage"))
     timezone: ZoneInfo = field(default_factory=lambda: ZoneInfo("UTC"))
     log_level: str = "INFO"
     docker_socket_path: str = "/var/run/docker.sock"
@@ -105,7 +105,7 @@ class AppConfig:
 
         rsync_remote_path = source.get("RSYNC_REMOTE_PATH", "/backups").strip() or "/backups"
         local_backup_dir = Path(
-            source.get("LOCAL_BACKUP_DIR", "/backup").strip() or "/backup"
+            source.get("LOCAL_BACKUP_DIR", "/.temporary_storage").strip() or "/.temporary_storage"
         )
         timezone = cls._parse_timezone(source.get("TZ", "UTC").strip() or "UTC", errors)
         log_level = source.get("LOG_LEVEL", "INFO").strip() or "INFO"

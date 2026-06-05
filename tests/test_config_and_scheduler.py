@@ -7,7 +7,7 @@ import unittest
 from collections.abc import Callable
 from datetime import datetime, time
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 from zoneinfo import ZoneInfo
 
 from backup_agent.app.config import AppConfig, ConfigError
@@ -55,6 +55,22 @@ class ConfigAndSchedulerTests(unittest.TestCase):
             self.assertEqual(config.storage_backend, "rsync")
             self.assertEqual(config.enabled_storage_backends, ("rsync",))
             self.assertTrue(Path(temp_dir).exists())
+
+    def test_load_config_defaults_local_backup_dir_to_temporary_storage(self) -> None:
+        env = {
+            "RSYNC_REMOTE_HOST": "nas.local",
+            "RSYNC_REMOTE_USER": "backup",
+            "RSYNC_REMOTE_PASSWORD": "secret",
+            "BACKUP_TIME": "02:30",
+            "BACKUP_RETENTION_DAYS": "14",
+            "TZ": "UTC",
+        }
+
+        with patch.object(AppConfig, "_ensure_directory") as ensure_directory:
+            config = AppConfig.from_env(env)
+
+        self.assertEqual(config.local_backup_dir, Path("/.temporary_storage"))
+        ensure_directory.assert_any_call(Path("/.temporary_storage"), ANY, "LOCAL_BACKUP_DIR")
 
     def test_load_config_allows_local_storage_without_rsync_credentials(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as mounted_dir:

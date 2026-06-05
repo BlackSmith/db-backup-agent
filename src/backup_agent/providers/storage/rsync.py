@@ -76,6 +76,7 @@ class RsyncStorageProvider(RemoteStorageProvider):
             "-a",
             "--delete-delay",
             "--delay-updates",
+            "--mkpath",
             f"--password-file={password_file}",
             f"{str(local_path).rstrip('/')}/",
             destination,

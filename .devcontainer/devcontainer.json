@@ -12,6 +12,9 @@
 	"forwardPorts": [
 		5151
 	],
+	"remoteEnv": {
+		"CONTEXT_MODE_DIR": "${localWorkspaceFolder}/.pi/context_mode"
+	},
 	"postCreateCommand": ".devcontainer/post-create.sh",
 	"mounts": [
 		"source=/home/blacksmith/.pi,target=/home/vscode/.pi,type=bind",

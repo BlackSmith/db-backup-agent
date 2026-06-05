@@ -10,17 +10,17 @@ services:
   #     LOG_LEVEL: ${LOG_LEVEL:-info}
   #     TZ: ${TZ:-UTC}
   #     BACKUP_TIME: ${BACKUP_TIME:-21:11}
-  #     export : ${BACKUP_RETENTION_DAYS:-7}
-  #     LOCAL_BACKUP_DIR: /backup
+  #     BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
+  #     LOCAL_BACKUP_DIR: /.temporary_storage
   #     BACKUP_LOCAL_STORAGE: "/storage"
   #     DOCKER_SOCKET_PATH: /var/run/docker.sock
-  #     # RSYNC_REMOTE_HOST: ${RSYNC_REMOTE_HOST:?set RSYNC_REMOTE_HOST in your environment or .env file}
-  #     # RSYNC_REMOTE_USER: ${RSYNC_REMOTE_USER:?set RSYNC_REMOTE_USER in your environment or .env file}
-  #     # RSYNC_REMOTE_PASSWORD: ${RSYNC_REMOTE_PASSWORD:?set RSYNC_REMOTE_PASSWORD in your environment or .env file}
-  #     # RSYNC_REMOTE_PATH: ${RSYNC_REMOTE_PATH:-/backups}
+  #     RSYNC_REMOTE_HOST: ${RSYNC_REMOTE_HOST:?set RSYNC_REMOTE_HOST in your environment or .env file}
+  #     RSYNC_REMOTE_USER: ${RSYNC_REMOTE_USER:?set RSYNC_REMOTE_USER in your environment or .env file}
+  #     RSYNC_REMOTE_PASSWORD: ${RSYNC_REMOTE_PASSWORD:?set RSYNC_REMOTE_PASSWORD in your environment or .env file}
+  #     RSYNC_REMOTE_PATH: ${RSYNC_REMOTE_PATH:-/backups}
   #   volumes:
   #     - ./storage:/storage
-  #     - backup-data:/backup
+  #     - backup-data:/.temporary_storage
   #     - /var/run/docker.sock:/var/run/docker.sock
   #   networks:
   #     - backup-net
@@ -66,10 +66,26 @@ services:
     networks:
       - backup-net
 
+  rsync:
+    build:
+      context: tests/rsync_container
+    image: rsync-server:local
+    ports:
+      - "873:873"
+    environment:
+      RSYNC_USER: backup
+      RSYNC_PASSWORD: super-secret-password
+      RSYNC_MODULE: backup
+      RSYNC_PATH: /srv/backup
+    volumes:
+      - rsync-data:/srv/backup
+    restart: unless-stopped
+
 volumes:
   backup-data:
   postgres-data:
   mariadb-data:
+  rsync-data:
 
 networks:
   backup-net:

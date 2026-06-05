@@ -1,6 +1,6 @@
 # Backup Agent
 
-Backup Agent is a containerized backup service for PostgreSQL and MariaDB workloads. It discovers labeled database containers through the Docker API, creates local run directories, synchronizes completed backups to remote storage via rsync, and applies retention afterward.
+Backup Agent is a containerized backup service for PostgreSQL and MariaDB workloads. Its primary usage model is as a Docker image acting as a lightweight Docker operator: it discovers labeled database containers through the Docker API, creates local run directories, synchronizes completed backups to remote storage via rsync or mounted local storage, and applies retention afterward.
 
 ## Current status
 
@@ -27,7 +27,23 @@ src/
     providers/
     infrastructure/
     interfaces/
+docs/
 ```
+
+## User documentation
+
+Full user documentation is available in `docs/`:
+
+- Start here for the main Docker operator deployment model: `docs/deployment.md`
+
+
+- `docs/README.md`
+- `docs/getting-started.md`
+- `docs/configuration.md`
+- `docs/discovery-and-labels.md`
+- `docs/operations.md`
+- `docs/deployment.md`
+- `docs/troubleshooting.md`
 
 ## Local development
 
@@ -112,7 +128,7 @@ Trade-off: the image runs as root so it can access the mounted Docker socket wit
 The container needs:
 
 - `/var/run/docker.sock:/var/run/docker.sock` for container discovery
-- `/backup:/backup` as a writable local staging volume
+- `/.temporary_storage:/.temporary_storage` as a writable local staging volume
 - network access to the database containers on the same Docker network
 
 ### Runtime environment variables in containers
@@ -126,7 +142,7 @@ Agent runtime variables:
 - `BACKUP_TIME`
 - `BACKUP_RETENTION_DAYS`
 - `RSYNC_REMOTE_PATH` (optional)
-- `LOCAL_BACKUP_DIR=/backup`
+- `LOCAL_BACKUP_DIR=/.temporary_storage`
 - `TZ` (optional)
 - `LOG_LEVEL` (optional)
 - `DOCKER_SOCKET_PATH=/var/run/docker.sock`
@@ -231,5 +247,5 @@ The workflow also publishes `latest` for version tags.
 
 - The backup agent discovers only containers labeled with `backup_agent.enabled=true`.
 - PostgreSQL and MariaDB metadata is resolved from labels first, then environment variables.
-- Local backups are written under `/backup/runs/<run-id>/`.
+- Local backups are written under `/.temporary_storage/runs/<run-id>/`.
 - The example deployment is intentionally minimal but reflects the architecture assumptions used by the application.
