@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import gzip
+import logging
 import shutil
 from pathlib import Path
 
@@ -20,6 +21,9 @@ from .base import (
     SubprocessCommandExecutor,
     resolve_dump_method,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 _POSTGRESQL_BINARY_FORMAT = {
@@ -69,10 +73,24 @@ class PostgreSQLBackupProvider(DatabaseBackupProvider):
 
         dump_method = resolve_dump_method(target.labels)
         requested_formats, format_errors = self._resolve_dump_formats(target)
+        logger.debug(
+            "postgresql backup start container=%s databases=%s all_databases=%s dump_method=%s requested_formats=%s output_dir=%s",
+            target.container_name,
+            target.databases,
+            target.all_databases,
+            dump_method,
+            requested_formats,
+            provider_dir,
+        )
         artifacts: list[BackupArtifact] = []
         errors: list[BackupProviderError] = list(format_errors)
 
         if format_errors:
+            logger.debug(
+                "postgresql backup aborted due to format validation errors container=%s errors=%s",
+                target.container_name,
+                [error.message for error in format_errors],
+            )
             return BackupProviderResult(
                 provider=self.db_type,
                 target=target,
@@ -83,6 +101,11 @@ class PostgreSQLBackupProvider(DatabaseBackupProvider):
 
         if target.all_databases:
             for dump_format in requested_formats:
+                logger.debug(
+                    "postgresql all-databases backup container=%s dump_format=%s",
+                    target.container_name,
+                    dump_format,
+                )
                 artifact, command_errors = self._backup_all_databases(
                     target,
                     provider_dir,
@@ -95,6 +118,12 @@ class PostgreSQLBackupProvider(DatabaseBackupProvider):
         else:
             for database in target.databases:
                 for dump_format in requested_formats:
+                    logger.debug(
+                        "postgresql database backup container=%s database=%s dump_format=%s",
+                        target.container_name,
+                        database,
+                        dump_format,
+                    )
                     if dump_format == "binary":
                         artifact, command_errors = self._backup_database_binary(
                             target,
@@ -113,6 +142,13 @@ class PostgreSQLBackupProvider(DatabaseBackupProvider):
                         artifacts.append(artifact)
                     errors.extend(command_errors)
 
+        logger.debug(
+            "postgresql backup finish container=%s status=%s artifacts=%s errors=%s",
+            target.container_name,
+            _result_status(artifacts, errors),
+            [artifact.path.name for artifact in artifacts],
+            [error.message for error in errors],
+        )
         return BackupProviderResult(
             provider=self.db_type,
             target=target,
@@ -133,6 +169,13 @@ class PostgreSQLBackupProvider(DatabaseBackupProvider):
         local_command = remote_command + ["-f", str(output_path)]
         local_env = {"PGPASSWORD": target.password or ""}
         remote_env = {"PGPASSWORD": target.password or ""}
+        logger.debug(
+            "postgresql binary command container=%s database=%s local_command=%s remote_command=%s",
+            target.container_name,
+            database,
+            " ".join(local_command),
+            " ".join(remote_command),
+        )
         return self._run_with_strategy(
             target=target,
             command_name="pg_dump",
@@ -159,6 +202,13 @@ class PostgreSQLBackupProvider(DatabaseBackupProvider):
         local_command = remote_command + ["-f", str(plain_output_path)]
         local_env = {"PGPASSWORD": target.password or ""}
         remote_env = {"PGPASSWORD": target.password or ""}
+        logger.debug(
+            "postgresql sql-gzip command container=%s database=%s local_command=%s remote_command=%s",
+            target.container_name,
+            database,
+            " ".join(local_command),
+            " ".join(remote_command),
+        )
         artifact, errors = self._run_with_strategy(
             target=target,
             command_name="pg_dump",
@@ -201,6 +251,11 @@ class PostgreSQLBackupProvider(DatabaseBackupProvider):
         dump_format: str,
     ) -> tuple[BackupArtifact | None, list[BackupProviderError]]:
         if dump_format != "sql_gzip":
+            logger.debug(
+                "postgresql all-databases format rejected container=%s requested_format=%s",
+                target.container_name,
+                dump_format,
+            )
             return None, [
                 BackupProviderError(
                     message=(
@@ -329,6 +384,12 @@ class PostgreSQLBackupProvider(DatabaseBackupProvider):
         errors: list[BackupProviderError] = []
 
         if dump_method in {"auto", "exec"}:
+            logger.debug(
+                "postgresql remote execution attempt command_name=%s database=%s command=%s",
+                command_name,
+                database,
+                " ".join(remote_command),
+            )
             remote_result, remote_error = self._run_remote_dump(
                 target=target,
                 command=remote_command,
@@ -338,15 +399,45 @@ class PostgreSQLBackupProvider(DatabaseBackupProvider):
                 command_name=command_name,
             )
             if remote_result is not None and remote_result.returncode == 0:
+                logger.debug(
+                    "postgresql remote execution succeeded command_name=%s database=%s returncode=%s",
+                    command_name,
+                    database,
+                    remote_result.returncode,
+                )
                 return _artifact_for(target, output_path, database, format_name), errors
             if remote_error is not None:
                 errors.append(remote_error)
             if dump_method == "exec":
+                logger.debug(
+                    "postgresql remote execution required but failed command_name=%s database=%s",
+                    command_name,
+                    database,
+                )
                 return None, errors
 
+        logger.debug(
+            "postgresql local execution attempt command_name=%s database=%s command=%s",
+            command_name,
+            database,
+            " ".join(local_command),
+        )
         local_result = self._run_local_dump(local_command, local_env)
         if local_result.returncode == 0:
+            logger.debug(
+                "postgresql local execution succeeded command_name=%s database=%s returncode=%s",
+                command_name,
+                database,
+                local_result.returncode,
+            )
             return _artifact_for(target, output_path, database, format_name), errors
+        logger.debug(
+            "postgresql local execution failed command_name=%s database=%s returncode=%s stderr=%s",
+            command_name,
+            database,
+            local_result.returncode,
+            local_result.stderr,
+        )
         errors.append(_error_for(local_result, f"local {command_name}", output_path, database))
         return None, errors
 
@@ -364,6 +455,12 @@ class PostgreSQLBackupProvider(DatabaseBackupProvider):
         command_name: str,
     ) -> tuple[CommandResult | None, BackupProviderError | None]:
         if self.docker_client is None:
+            logger.debug(
+                "postgresql remote execution unavailable command_name=%s database=%s command=%s",
+                command_name,
+                database,
+                " ".join(command),
+            )
             return None, BackupProviderError(
                 message=f"remote {command_name} failed: remote exec is unavailable",
                 command=command,
@@ -373,6 +470,13 @@ class PostgreSQLBackupProvider(DatabaseBackupProvider):
 
         temp_path = _temporary_output_path(output_path)
         stderr_chunks: list[bytes] = []
+        logger.debug(
+            "postgresql remote exec starting container_id=%s command_name=%s command=%s output_path=%s",
+            target.container_id,
+            command_name,
+            " ".join(command),
+            output_path,
+        )
         try:
             with temp_path.open("wb") as handle:
                 result = self.docker_client.exec_in_container(
@@ -384,16 +488,36 @@ class PostgreSQLBackupProvider(DatabaseBackupProvider):
                 )
             if result.returncode == 0:
                 temp_path.replace(output_path)
+                logger.debug(
+                    "postgresql remote exec succeeded container_id=%s command_name=%s returncode=%s",
+                    target.container_id,
+                    command_name,
+                    result.returncode,
+                )
                 return result, None
+            decoded_stderr = _decode_bytes(stderr_chunks) or _decode_bytes([result.stderr])
+            logger.debug(
+                "postgresql remote exec failed container_id=%s command_name=%s returncode=%s stderr=%s",
+                target.container_id,
+                command_name,
+                result.returncode,
+                decoded_stderr,
+            )
             return None, BackupProviderError(
                 message=f"remote {command_name} failed with exit code {result.returncode}",
                 command=command,
                 returncode=result.returncode,
-                stderr=_decode_bytes(stderr_chunks) or _decode_bytes([result.stderr]),
+                stderr=decoded_stderr,
                 output_path=output_path,
                 database=database,
             )
         except DockerSocketError as exc:
+            logger.debug(
+                "postgresql remote exec socket error container_id=%s command_name=%s error=%s",
+                target.container_id,
+                command_name,
+                exc,
+            )
             return None, BackupProviderError(
                 message=f"remote {command_name} failed: {exc}",
                 command=command,

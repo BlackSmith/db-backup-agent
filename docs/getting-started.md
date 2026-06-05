@@ -50,6 +50,7 @@ docker run -d \
   -e RSYNC_REMOTE_HOST=nas.local \
   -e RSYNC_REMOTE_USER=backup \
   -e RSYNC_REMOTE_PASSWORD=change-me \
+  -e RSYNC_REMOTE_PATH=backup \
   backup-agent:local --schedule
 ```
 
@@ -65,6 +66,7 @@ docker run --rm \
   -e RSYNC_REMOTE_HOST=nas.local \
   -e RSYNC_REMOTE_USER=backup \
   -e RSYNC_REMOTE_PASSWORD=change-me \
+  -e RSYNC_REMOTE_PATH=backup \
   backup-agent:local --run-once
 ```
 
@@ -91,11 +93,13 @@ export DOCKER_SOCKET_PATH=/var/run/docker.sock
 
 ### Option B: rsync storage
 
+Use the rsync **module name** or daemon module suffix, not a filesystem path beginning with `/`.
+
 ```bash
 export RSYNC_REMOTE_HOST=nas.local
 export RSYNC_REMOTE_USER=backup
 export RSYNC_REMOTE_PASSWORD=change-me
-export RSYNC_REMOTE_PATH=/backups
+export RSYNC_REMOTE_PATH=backup
 export BACKUP_TIME=02:00
 export BACKUP_RETENTION_DAYS=7
 export DOCKER_SOCKET_PATH=/var/run/docker.sock
@@ -129,6 +133,7 @@ docker run --rm \
   -e RSYNC_REMOTE_HOST=nas.local \
   -e RSYNC_REMOTE_USER=backup \
   -e RSYNC_REMOTE_PASSWORD=change-me \
+  -e RSYNC_REMOTE_PATH=backup \
   backup-agent:local --run-once
 ```
 
@@ -160,6 +165,7 @@ docker run -d \
   -e RSYNC_REMOTE_HOST=nas.local \
   -e RSYNC_REMOTE_USER=backup \
   -e RSYNC_REMOTE_PASSWORD=change-me \
+  -e RSYNC_REMOTE_PATH=backup \
   backup-agent:local --schedule
 ```
 

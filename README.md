@@ -35,8 +35,6 @@ docs/
 Full user documentation is available in `docs/`:
 
 - Start here for the main Docker operator deployment model: `docs/deployment.md`
-
-
 - `docs/README.md`
 - `docs/getting-started.md`
 - `docs/configuration.md`
@@ -95,7 +93,7 @@ Storage variables are optional individually and can be combined:
 - `RSYNC_REMOTE_HOST`
 - `RSYNC_REMOTE_USER`
 - `RSYNC_REMOTE_PASSWORD`
-- `RSYNC_REMOTE_PATH`
+- `RSYNC_REMOTE_PATH` (rsync module name, not a filesystem path beginning with `/`)
 
 Other optional variables:
 
@@ -141,7 +139,7 @@ Agent runtime variables:
 - `RSYNC_REMOTE_PASSWORD` (optional unless you want NAS upload)
 - `BACKUP_TIME`
 - `BACKUP_RETENTION_DAYS`
-- `RSYNC_REMOTE_PATH` (optional)
+- `RSYNC_REMOTE_PATH` (module name, not a filesystem path)
 - `LOCAL_BACKUP_DIR=/.temporary_storage`
 - `TZ` (optional)
 - `LOG_LEVEL` (optional)

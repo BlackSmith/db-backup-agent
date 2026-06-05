@@ -88,7 +88,7 @@ docker run -d \
   -e RSYNC_REMOTE_HOST=nas.local \
   -e RSYNC_REMOTE_USER=backup \
   -e RSYNC_REMOTE_PASSWORD=change-me \
-  -e RSYNC_REMOTE_PATH=/backups \
+  -e RSYNC_REMOTE_PATH=backup \
   backup-agent:local --schedule
 ```
 
@@ -117,7 +117,7 @@ backup-agent:
     RSYNC_REMOTE_HOST: ${RSYNC_REMOTE_HOST}
     RSYNC_REMOTE_USER: ${RSYNC_REMOTE_USER}
     RSYNC_REMOTE_PASSWORD: ${RSYNC_REMOTE_PASSWORD}
-    RSYNC_REMOTE_PATH: ${RSYNC_REMOTE_PATH:-/backups}
+    RSYNC_REMOTE_PATH: ${RSYNC_REMOTE_PATH:-backup}
   volumes:
     - ./storage:/storage
     - backup-data:/.temporary_storage
@@ -197,6 +197,12 @@ RSYNC_USER=backup
 RSYNC_PASSWORD=super-secret-password
 RSYNC_MODULE=backup
 RSYNC_PATH=/srv/backup
+```
+
+When configuring Backup Agent, use the rsync module name, not a filesystem path:
+
+```bash
+export RSYNC_REMOTE_PATH=backup
 ```
 
 ## Deployment modes

@@ -35,6 +35,7 @@ docker run --rm \
   -e RSYNC_REMOTE_HOST=nas.local \
   -e RSYNC_REMOTE_USER=backup \
   -e RSYNC_REMOTE_PASSWORD=change-me \
+  -e RSYNC_REMOTE_PATH=backup \
   backup-agent:local --schedule
 ```
 
@@ -49,6 +50,7 @@ docker run --rm \
   -e RSYNC_REMOTE_HOST=nas.local \
   -e RSYNC_REMOTE_USER=backup \
   -e RSYNC_REMOTE_PASSWORD=change-me \
+  -e RSYNC_REMOTE_PATH=backup \
   backup-agent:local --run-once
 ```
 

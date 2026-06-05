@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -19,6 +20,9 @@ from .base import (
     SubprocessCommandExecutor,
     resolve_dump_method,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class MariaDBBackupProvider(DatabaseBackupProvider):
@@ -58,7 +62,16 @@ class MariaDBBackupProvider(DatabaseBackupProvider):
         artifacts: list[BackupArtifact] = []
         errors: list[BackupProviderError] = []
 
-        with NamedTemporaryFile("w", delete=False, prefix="mariadb-", suffix=".cnf") as defaults_file:
+        logger.debug(
+            "mariadb backup start container=%s databases=%s all_databases=%s dump_method=%s output_dir=%s",
+            target.container_name,
+            target.databases,
+            target.all_databases,
+            dump_method,
+            provider_dir,
+        )
+
+        with NamedTemporaryFile("w", delete=False, prefix="mariadb-", suffix="cnf") as defaults_file:
             defaults_path = Path(defaults_file.name)
             defaults_file.write(
                 "[client]\n"
@@ -71,6 +84,11 @@ class MariaDBBackupProvider(DatabaseBackupProvider):
         try:
             if target.all_databases:
                 output_path = provider_dir / "all-databases.sql"
+                logger.debug(
+                    "mariadb all-databases backup container=%s output_path=%s",
+                    target.container_name,
+                    output_path,
+                )
                 artifact, command_errors = self._backup_all_databases(
                     target,
                     output_path,
@@ -81,6 +99,11 @@ class MariaDBBackupProvider(DatabaseBackupProvider):
                     artifacts.append(artifact)
                 errors.extend(command_errors)
             else:
+                logger.debug(
+                    "mariadb database backup container=%s databases=%s",
+                    target.container_name,
+                    target.databases,
+                )
                 artifact, command_errors = self._backup_databases(
                     target,
                     provider_dir,
@@ -94,6 +117,13 @@ class MariaDBBackupProvider(DatabaseBackupProvider):
             with contextlib.suppress(FileNotFoundError):
                 defaults_path.unlink()
 
+        logger.debug(
+            "mariadb backup finish container=%s status=%s artifacts=%s errors=%s",
+            target.container_name,
+            _result_status(artifacts, errors),
+            [artifact.path.name for artifact in artifacts],
+            [error.message for error in errors],
+        )
         return BackupProviderResult(
             provider=self.db_type,
             target=target,
@@ -129,6 +159,13 @@ class MariaDBBackupProvider(DatabaseBackupProvider):
                 str(target.port),
                 database,
             ]
+            logger.debug(
+                "mariadb single-database command container=%s database=%s local_command=%s remote_command=%s",
+                target.container_name,
+                database,
+                " ".join(local_command),
+                " ".join(remote_command),
+            )
             return self._backup_with_strategy(
                 target=target,
                 output_path=output_path,
@@ -161,6 +198,13 @@ class MariaDBBackupProvider(DatabaseBackupProvider):
             "--databases",
             *target.databases,
         ]
+        logger.debug(
+            "mariadb multi-database command container=%s databases=%s local_command=%s remote_command=%s",
+            target.container_name,
+            target.databases,
+            " ".join(local_command),
+            " ".join(remote_command),
+        )
         return self._backup_with_strategy(
             target=target,
             output_path=output_path,
@@ -197,6 +241,12 @@ class MariaDBBackupProvider(DatabaseBackupProvider):
             str(target.port),
             "--all-databases",
         ]
+        logger.debug(
+            "mariadb all-databases command container=%s local_command=%s remote_command=%s",
+            target.container_name,
+            " ".join(local_command),
+            " ".join(remote_command),
+        )
         return self._backup_with_strategy(
             target=target,
             output_path=output_path,
@@ -225,6 +275,11 @@ class MariaDBBackupProvider(DatabaseBackupProvider):
         errors: list[BackupProviderError] = []
 
         if dump_method in {"auto", "exec"}:
+            logger.debug(
+                "mariadb remote execution attempt command=%s database=%s",
+                " ".join(remote_command),
+                database,
+            )
             remote_result, remote_error = self._run_remote_dump(
                 target=target,
                 command=remote_command,
@@ -234,20 +289,58 @@ class MariaDBBackupProvider(DatabaseBackupProvider):
                 command_name=remote_command[0],
             )
             if remote_result is not None and remote_result.returncode == 0:
+                logger.debug(
+                    "mariadb remote execution succeeded command=%s database=%s returncode=%s",
+                    remote_command[0],
+                    database,
+                    remote_result.returncode,
+                )
                 return _artifact_for(target, output_path, database, format_name), errors
             if remote_error is not None:
                 errors.append(remote_error)
             if dump_method == "exec":
+                logger.debug(
+                    "mariadb remote execution required but failed command=%s database=%s",
+                    remote_command[0],
+                    database,
+                )
                 return None, errors
 
+        logger.debug(
+            "mariadb local execution attempt command=%s database=%s",
+            " ".join(local_command),
+            database,
+        )
         local_result = self._run_local_dump(local_command, local_env)
         if local_result.returncode == 0:
+            logger.debug(
+                "mariadb local execution succeeded command=%s database=%s returncode=%s",
+                local_command[0],
+                database,
+                local_result.returncode,
+            )
             return _artifact_for(target, output_path, database, format_name), errors
+        logger.debug(
+            "mariadb local execution failed command=%s database=%s returncode=%s stderr=%s",
+            local_command[0],
+            database,
+            local_result.returncode,
+            local_result.stderr,
+        )
         errors.append(_error_for(local_result, f"local {local_command[0]}", output_path, database))
         return None, errors
 
     def _run_local_dump(self, command: list[str], env: dict[str, str]) -> CommandResult:
-        return self.executor.run(command, env=env)
+        logger.debug("mariadb local dump command=%s env_keys=%s", " ".join(command), sorted(env))
+        result = self.executor.run(command, env=env)
+        logger.debug(
+            "mariadb local dump finished command=%s returncode=%s stdout=%s stderr=%s",
+            " ".join(command),
+            result.returncode,
+            result.stdout,
+            result.stderr,
+        )
+        return result
 
     def _run_remote_dump(
         self,
@@ -260,6 +353,11 @@ class MariaDBBackupProvider(DatabaseBackupProvider):
         command_name: str,
     ) -> tuple[CommandResult | None, BackupProviderError | None]:
         if self.docker_client is None:
+            logger.debug(
+                "mariadb remote dump unavailable command=%s database=%s",
+                " ".join(command),
+                database,
+            )
             return None, BackupProviderError(
                 message=f"remote {command_name} failed: remote exec is unavailable",
                 command=command,
@@ -269,6 +367,12 @@ class MariaDBBackupProvider(DatabaseBackupProvider):
 
         temp_path = _temporary_output_path(output_path)
         stderr_chunks: list[bytes] = []
+        logger.debug(
+            "mariadb remote exec starting container_id=%s command=%s output_path=%s",
+            target.container_id,
+            " ".join(command),
+            output_path,
+        )
         try:
             with temp_path.open("wb") as handle:
                 result = self.docker_client.exec_in_container(
@@ -280,16 +384,36 @@ class MariaDBBackupProvider(DatabaseBackupProvider):
                 )
             if result.returncode == 0:
                 temp_path.replace(output_path)
+                logger.debug(
+                    "mariadb remote exec succeeded container_id=%s command=%s returncode=%s",
+                    target.container_id,
+                    command_name,
+                    result.returncode,
+                )
                 return result, None
+            decoded_stderr = _decode_bytes(stderr_chunks) or _decode_bytes([result.stderr])
+            logger.debug(
+                "mariadb remote exec failed container_id=%s command=%s returncode=%s stderr=%s",
+                target.container_id,
+                command_name,
+                result.returncode,
+                decoded_stderr,
+            )
             return None, BackupProviderError(
                 message=f"remote {command_name} failed with exit code {result.returncode}",
                 command=command,
                 returncode=result.returncode,
-                stderr=_decode_bytes(stderr_chunks) or _decode_bytes([result.stderr]),
+                stderr=decoded_stderr,
                 output_path=output_path,
                 database=database,
             )
         except DockerSocketError as exc:
+            logger.debug(
+                "mariadb remote exec socket error container_id=%s command=%s error=%s",
+                target.container_id,
+                command_name,
+                exc,
+            )
             return None, BackupProviderError(
                 message=f"remote {command_name} failed: {exc}",
                 command=command,

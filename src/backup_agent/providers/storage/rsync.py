@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import os
+import logging
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from tempfile import NamedTemporaryFile, TemporaryDirectory
+from tempfile import TemporaryDirectory
 
 from backup_agent.infrastructure.filesystem import safe_name
 from backup_agent.providers.databases.base import CommandResult, SubprocessCommandExecutor
@@ -19,6 +19,9 @@ from .base import (
     RemoteStorageProvider,
     RemoteSyncResult,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -35,11 +38,20 @@ class RsyncStorageProvider(RemoteStorageProvider):
 
     def sync(self, local_path: Path, remote_path: str | None = None) -> RemoteSyncResult:
         destination = self._build_run_destination(local_path, remote_path)
-        command, password_file = self._build_sync_command(local_path, destination)
-        try:
-            result = self._run(command)
-        finally:
-            self._cleanup_password_file(password_file)
+        command = self._build_sync_command(local_path, destination)
+        logger.debug(
+            "rsync sync start local_path=%s destination=%s command=%s",
+            local_path,
+            destination,
+            " ".join(command),
+        )
+        result = self._run(command)
+        logger.debug(
+            "rsync sync finish local_path=%s destination=%s returncode=%s",
+            local_path,
+            destination,
+            result.returncode,
+        )
         return self._to_sync_result(local_path, destination, command, result)
 
     def cleanup(self, local_path: Path, retention_days: int) -> RemoteCleanupResult:
@@ -49,52 +61,77 @@ class RsyncStorageProvider(RemoteStorageProvider):
         with TemporaryDirectory(prefix="rsync-retention-") as temp_dir:
             temp_root = Path(temp_dir)
             self._populate_retention_view(temp_root, plan.retained_run_dirs)
-            command, password_file = self._build_cleanup_command(temp_root, destination)
-            try:
-                result = self._run(command)
-            finally:
-                self._cleanup_password_file(password_file)
+            command = self._build_cleanup_command(temp_root, destination)
+            logger.debug(
+                "rsync cleanup start local_path=%s destination=%s retention_days=%s command=%s",
+                local_path,
+                destination,
+                retention_days,
+                " ".join(command),
+            )
+            result = self._run(command)
 
+        logger.debug(
+            "rsync cleanup finish local_path=%s destination=%s returncode=%s retained=%s expired=%s",
+            local_path,
+            destination,
+            result.returncode,
+            [str(path) for path in plan.retained_run_dirs],
+            [str(path) for path in plan.expired_run_dirs],
+        )
         return self._to_cleanup_result(local_path, destination, command, result, plan.errors)
 
     def _build_run_destination(self, local_path: Path, remote_path: str | None) -> str:
-        if remote_path:
-            return remote_path.rstrip("/")
+        remote_root = self._normalize_remote_path(remote_path)
         run_id = safe_name(local_path.name, local_path.name)
-        return f"{self.remote_user}@{self.remote_host}::{self._remote_root().rstrip('/')}/runs/{run_id}"
+        return f"rsync://{self.remote_user}@{self.remote_host}/{remote_root}/runs/{run_id}"
 
     def _build_remote_root_destination(self) -> str:
-        return f"{self.remote_user}@{self.remote_host}::{self._remote_root().rstrip('/')}"
+        return f"rsync://{self.remote_user}@{self.remote_host}/{self._normalize_remote_path(None)}"
 
     def _remote_root(self) -> str:
         return self.remote_path.rstrip("/") or "/"
 
-    def _build_sync_command(self, local_path: Path, destination: str) -> tuple[list[str], Path]:
-        password_file = self._create_password_file()
+    def _normalize_remote_path(self, remote_path: str | None) -> str:
+        path = (remote_path if remote_path is not None else self._remote_root()).strip()
+        if path.startswith("rsync://"):
+            return path.removeprefix("rsync://").rstrip("/")
+        return path.lstrip("/").rstrip("/") or ""
+
+    def _build_sync_command(self, local_path: Path, destination: str) -> list[str]:
         command = [
             "rsync",
             "-a",
             "--delete-delay",
             "--delay-updates",
             "--mkpath",
-            f"--password-file={password_file}",
             f"{str(local_path).rstrip('/')}/",
-            f"rsync://{destination}",
+            destination,
         ]
-        return command, password_file
+        logger.debug(
+            "rsync sync command built local_path=%s destination=%s command=%s",
+            local_path,
+            destination,
+            " ".join(command),
+        )
+        return command
 
-    def _build_cleanup_command(self, local_path: Path, destination: str) -> tuple[list[str], Path]:
-        password_file = self._create_password_file()
+    def _build_cleanup_command(self, local_path: Path, destination: str) -> list[str]:
         command = [
             "rsync",
             "-aL",
             "--delete-delay",
             "--delay-updates",
-            f"--password-file={password_file}",
             f"{str(local_path).rstrip('/')}/",
-            f"rsync://{destination}",
+            destination,
         ]
-        return command, password_file
+        logger.debug(
+            "rsync cleanup command built local_path=%s destination=%s command=%s",
+            local_path,
+            destination,
+            " ".join(command),
+        )
+        return command
 
     def _populate_retention_view(self, temp_root: Path, retained_run_dirs: list[Path]) -> None:
         runs_view = temp_root / "runs"
@@ -109,22 +146,18 @@ class RsyncStorageProvider(RemoteStorageProvider):
                 else:
                     link_path.write_text(run_dir.read_text(encoding="utf-8"), encoding="utf-8")
 
-    def _create_password_file(self) -> Path:
-        with NamedTemporaryFile("w", delete=False, prefix="rsync-password-", suffix=".txt") as temp_file:
-            temp_file.write(self.remote_password)
-            password_file = Path(temp_file.name)
-        os.chmod(password_file, 0o600)
-        return password_file
-
-    def _cleanup_password_file(self, password_file: Path) -> None:
-        try:
-            password_file.unlink()
-        except FileNotFoundError:
-            pass
-
     def _run(self, command: list[str]) -> CommandResult:
         env = {"RSYNC_PASSWORD": self.remote_password}
-        return self.executor.run(command, env=env)
+        logger.debug("rsync execution starting command=%s env_keys=%s", " ".join(command), sorted(env))
+        result = self.executor.run(command, env=env)
+        logger.debug(
+            "rsync execution finished command=%s returncode=%s stdout=%s stderr=%s",
+            " ".join(command),
+            result.returncode,
+            result.stdout,
+            result.stderr,
+        )
+        return result
 
     def _to_sync_result(
         self,

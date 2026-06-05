@@ -81,7 +81,7 @@ Rsync auth password.
 
 #### `RSYNC_REMOTE_PATH`
 
-Remote root path/module string used by the rsync provider.
+Rsync daemon module name or remote module/path suffix used by the rsync provider.
 
 Default:
 
@@ -92,7 +92,8 @@ Default:
 Notes:
 
 - rsync configuration is considered incomplete unless host, user, and password are all present
-- the provider uses rsync daemon-style destinations
+- the provider uses `rsync://` destinations and strips any leading `/` from this value before building the remote URL
+- prefer a module name such as `backup` or `backups`, not a filesystem path like `/backup`
 - successful sync commands use `--mkpath` to create missing destination path components on the remote side
 
 ## Optional variables
