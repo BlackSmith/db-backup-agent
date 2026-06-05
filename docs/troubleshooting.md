@@ -107,7 +107,7 @@ The run ends with `sync_failed` or a `run_error` from source `sync`.
 ### Notes
 
 - the rsync provider uses the `RSYNC_PASSWORD` environment variable for daemon authentication
-- the remote rsync module/path must already exist on the server
+- sync commands use `--mkpath` to create missing destination path components
 - if rsync publish fails, the staging run directory is intentionally preserved
 
 ## Local mounted storage publish failures

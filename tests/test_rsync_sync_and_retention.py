@@ -45,6 +45,7 @@ class RsyncSyncAndRetentionTests(unittest.TestCase):
 
         self.assertEqual(result.status, "success")
         self.assertEqual(executor.commands[0][0], "rsync")
+        self.assertIn("--mkpath", executor.commands[0])
         self.assertNotIn("secret", " ".join(executor.commands[0]))
         self.assertEqual(result.remote_destination, "rsync://backup@nas.local/backups/runs/20260603T090000Z-abcdef12")
         self.assertEqual(executor.envs[0]["RSYNC_PASSWORD"], "secret")
