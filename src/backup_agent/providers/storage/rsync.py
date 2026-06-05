@@ -104,7 +104,6 @@ class RsyncStorageProvider(RemoteStorageProvider):
             "-a",
             "--delete-delay",
             "--delay-updates",
-            "--mkpath",
             f"{str(local_path).rstrip('/')}/",
             destination,
         ]

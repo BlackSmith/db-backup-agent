@@ -94,7 +94,7 @@ Notes:
 - rsync configuration is considered incomplete unless host, user, and password are all present
 - the provider uses `rsync://` destinations and strips any leading `/` from this value before building the remote URL
 - prefer a module name such as `backup` or `backups`, not a filesystem path like `/backup`
-- successful sync commands use `--mkpath` to create missing destination path components on the remote side
+- the remote rsync module/path must already exist on the server
 
 ## Optional variables
 

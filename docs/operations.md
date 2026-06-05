@@ -186,7 +186,6 @@ The provider publishes staged content with rsync and uses:
 
 - `--delete-delay`
 - `--delay-updates`
-- `--mkpath`
 - a temporary password file
 
 Retention is implemented by building a temporary retained-runs view and synchronizing it back to the remote root.
