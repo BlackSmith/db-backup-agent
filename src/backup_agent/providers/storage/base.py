@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Protocol, Sequence
 
@@ -59,6 +60,70 @@ class RemoteCleanupResult:
     status: str
     local_path: Path
     remote_destination: str
+    command: list[str] = field(default_factory=list)
+    returncode: int | None = None
+    stderr: str = ""
+    error: RemoteStorageError | None = None
+
+    @property
+    def succeeded(self) -> bool:
+        return self.status == "success"
+
+
+@dataclass(slots=True)
+class RemoteManifestRecord:
+    """Inventory record describing one remote backup run."""
+
+    run_id: str
+    remote_run_path: str
+    manifest_local_path: Path | None = None
+    finished_at: datetime | None = None
+    started_at: datetime | None = None
+
+
+@dataclass(slots=True)
+class RemoteManifestInventoryResult:
+    """Structured result returned by remote manifest inventory."""
+
+    status: str
+    remote_destination: str
+    manifests: list[RemoteManifestRecord] = field(default_factory=list)
+    command: list[str] = field(default_factory=list)
+    returncode: int | None = None
+    stderr: str = ""
+    errors: list[str] = field(default_factory=list)
+    error: RemoteStorageError | None = None
+
+    @property
+    def succeeded(self) -> bool:
+        return self.status == "success"
+
+
+@dataclass(slots=True)
+class RemoteRetentionPlanResult:
+    """Structured result returned by remote retention planning."""
+
+    status: str
+    remote_destination: str
+    retention_days: int
+    cutoff_at: datetime
+    retained_manifests: list[RemoteManifestRecord] = field(default_factory=list)
+    expired_manifests: list[RemoteManifestRecord] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    inventory: RemoteManifestInventoryResult | None = None
+
+    @property
+    def succeeded(self) -> bool:
+        return self.status == "success"
+
+
+@dataclass(slots=True)
+class RemoteDeleteResult:
+    """Structured result returned by targeted remote deletion."""
+
+    status: str
+    remote_destination: str
+    deleted_run_ids: list[str] = field(default_factory=list)
     command: list[str] = field(default_factory=list)
     returncode: int | None = None
     stderr: str = ""

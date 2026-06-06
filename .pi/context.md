@@ -91,6 +91,7 @@ Implementation notes for each task were written to:
 - Generic labels are now preferred, but the implementation intentionally still accepts legacy engine-specific labels during the migration window.
 - PostgreSQL cluster-wide backups intentionally restrict `backup_agent.dump_format` to `sql_gzip` because `pg_dumpall` does not produce a single custom-format binary equivalent.
 - Metrics endpoints are not yet implemented.
+- Current rsync retention still derives the remote deletion set from transient local staging state; this is unsafe for ransomware or staging-loss scenarios and should be replaced by remote-manifest-based retention.
 - Restore workflows, encryption, notifications, and additional storage backends remain future work.
 
 ## Recommended next steps
@@ -104,5 +105,6 @@ If the project moves into phase 2, the most valuable follow-up areas are:
 5. hardening secret handling and deployment security
 6. improving retry and failure recovery behavior
 7. adding an HTTP health/metrics endpoint if operationally useful
-8. validating the Docker image build in CI
-9. preparing restore workflows and checksum support
+8. redesign rsync retention so it inventories remote manifests, deletes only expired remote runs, and never re-uploads retained manifests during cleanup
+9. validating the Docker image build in CI
+10. preparing restore workflows and checksum support

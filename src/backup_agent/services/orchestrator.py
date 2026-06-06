@@ -24,7 +24,7 @@ from backup_agent.providers.databases import (
     MariaDBBackupProvider,
     PostgreSQLBackupProvider,
 )
-from backup_agent.providers.storage import RemoteStorageProvider, build_storage_provider
+from backup_agent.providers.storage import CompositeStorageProvider, RemoteStorageProvider, RsyncStorageProvider, build_storage_provider
 from backup_agent.services.discovery import ContainerDiscovery, DiscoveryError
 from backup_agent.services.manifest import ManifestWriter
 from backup_agent.services.metadata_resolver import MetadataResolutionError, MetadataResolver
@@ -91,6 +91,13 @@ class BackupOrchestratorService:
                 return run
 
             self._finish_run(run, layout)
+            rsync_provider = self._rsync_provider()
+            if rsync_provider is not None:
+                rsync_result = self._sync_with_rsync_retention(run, layout, rsync_provider)
+                if rsync_result is not None:
+                    return rsync_result
+                return run
+
             sync_result = self.remote_storage.sync(layout.run_dir)
             log_event(
                 self.logger,
@@ -167,6 +174,160 @@ class BackupOrchestratorService:
             run.errors.append(BackupRunError(source="discovery", message=str(exc)))
             self._finish_run(run, layout)
             return run
+
+    def _sync_with_rsync_retention(
+        self,
+        run: BackupRun,
+        layout: RunLayout,
+        rsync_provider: RsyncStorageProvider,
+    ) -> BackupRun | None:
+        log_event(
+            self.logger,
+            "retention_start",
+            run_id=run.run_id,
+            retention_days=self.config.backup_retention_days,
+        )
+        plan = rsync_provider.plan_remote_retention(self.config.backup_retention_days)
+        if not plan.succeeded:
+            self._append_rsync_retention_errors(
+                run,
+                plan.errors,
+                plan.inventory.command if plan.inventory else [],
+                plan.inventory.returncode if plan.inventory else None,
+                plan.inventory.stderr if plan.inventory else "",
+            )
+            log_event(
+                self.logger,
+                "retention_finish",
+                run_id=run.run_id,
+                remote_status=plan.status,
+                local_status="skipped",
+                removed_local_runs=0,
+            )
+            run.status = STATUS_PARTIAL if run.artifacts else STATUS_FAILED
+            self._finish_run(run, layout)
+            return run
+
+        delete_result = rsync_provider.delete_remote_runs([manifest.run_id for manifest in plan.expired_manifests])
+        if not delete_result.succeeded:
+            self._append_rsync_delete_error(run, delete_result)
+            log_event(
+                self.logger,
+                "retention_finish",
+                run_id=run.run_id,
+                remote_status=delete_result.status,
+                local_status="skipped",
+                removed_local_runs=0,
+            )
+            run.status = STATUS_PARTIAL if run.artifacts else STATUS_FAILED
+            self._finish_run(run, layout)
+            return run
+
+        sync_result = self.remote_storage.sync(layout.run_dir)
+        log_event(
+            self.logger,
+            "sync_finish",
+            run_id=run.run_id,
+            status=sync_result.status,
+            remote_destination=sync_result.remote_destination,
+        )
+        if not sync_result.succeeded:
+            run.status = STATUS_PARTIAL if sync_result.status == "partial" else STATUS_SYNC_FAILED
+            run.errors.append(
+                BackupRunError(
+                    source="sync",
+                    message=sync_result.error.message if sync_result.error else "Remote sync failed",
+                    command=list(sync_result.command),
+                    returncode=sync_result.returncode,
+                    stderr=sync_result.stderr,
+                )
+            )
+            log_event(
+                self.logger,
+                "retention_finish",
+                run_id=run.run_id,
+                remote_status="success",
+                local_status="skipped",
+                removed_local_runs=0,
+            )
+            self._finish_run(run, layout)
+            return run
+
+        if self.config.uses_local_storage:
+            local_cleanup = self.retention.cleanup(layout.runs_root, self.config.backup_retention_days)
+            local_status = local_cleanup.status
+            removed_local_runs = len(local_cleanup.removed_run_dirs)
+            if local_cleanup.errors:
+                run.errors.append(
+                    BackupRunError(
+                        source="local_retention",
+                        message="; ".join(local_cleanup.errors),
+                    )
+                )
+        else:
+            local_status = "success"
+            removed_local_runs = 0
+
+        log_event(
+            self.logger,
+            "retention_finish",
+            run_id=run.run_id,
+            remote_status="success",
+            local_status=local_status,
+            removed_local_runs=removed_local_runs,
+        )
+
+        if run.errors:
+            run.status = STATUS_PARTIAL
+        else:
+            run.status = STATUS_SUCCESS
+
+        self._finish_run(run, layout)
+        if run.status == STATUS_SUCCESS:
+            try:
+                self.staging.cleanup_run_tree(layout)
+            except OSError as exc:
+                self.logger.warning("Failed to clean up local staging for run_id=%s: %s", run.run_id, exc)
+        return run
+
+    def _append_rsync_retention_errors(
+        self,
+        run: BackupRun,
+        errors: list[str],
+        command: list[str],
+        returncode: int | None,
+        stderr: str,
+    ) -> None:
+        message = "; ".join(errors) if errors else "rsync manifest inventory failed"
+        run.errors.append(
+            BackupRunError(
+                source="remote_retention",
+                message=message,
+                command=list(command),
+                returncode=returncode,
+                stderr=stderr,
+            )
+        )
+
+    def _append_rsync_delete_error(self, run: BackupRun, delete_result) -> None:
+        run.errors.append(
+            BackupRunError(
+                source="remote_retention",
+                message=delete_result.error.message if delete_result.error else "rsync delete failed",
+                command=list(delete_result.command),
+                returncode=delete_result.returncode,
+                stderr=delete_result.stderr,
+            )
+        )
+
+    def _rsync_provider(self) -> RsyncStorageProvider | None:
+        if isinstance(self.remote_storage, RsyncStorageProvider):
+            return self.remote_storage
+        if isinstance(self.remote_storage, CompositeStorageProvider):
+            for provider in self.remote_storage.providers:
+                if isinstance(provider, RsyncStorageProvider):
+                    return provider
+        return None
 
     def _resolve_targets(self, run: BackupRun, discovered: Iterable[dict[str, object]]) -> list:
         targets = []

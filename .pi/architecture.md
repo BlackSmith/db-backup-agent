@@ -390,6 +390,11 @@ Recommendation:
 - do not treat individual files as separate remote transactions
 - if the storage supports it, upload/copy into a temporary directory and rename after success
 
+Current implementation caveat:
+
+- the existing rsync retention path still derives the remote retained set from transient local staging directories; this is not safe if local staging is lost, truncated, or tampered with between runs
+- a safer follow-up should inventory remote manifests directly from the NAS, compute expiration from that remote inventory, delete only expired remote run directories, and then upload the new run without re-uploading retained manifests
+
 Recommended config extensions:
 
 - `RSYNC_REMOTE_PATH=/backups`
@@ -411,6 +416,14 @@ Recommendation:
 - perform retention only after successful remote sync
 - apply retention on remote storage
 - optionally apply local retention as a separate policy
+
+For rsync daemon-style storage, a safer retention design is:
+
+1. download or inventory only remote `manifest.json` files and run directory names from the NAS
+2. compute the remote expiration plan from that remote inventory, not from transient staging
+3. delete only expired remote run directories
+4. upload the newly completed run
+5. never re-upload retained remote manifests during the cleanup step, so existing NAS metadata cannot be overwritten accidentally
 
 Policy:
 
