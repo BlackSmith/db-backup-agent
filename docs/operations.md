@@ -190,6 +190,8 @@ The provider publishes staged content with rsync and uses:
 
 Retention is implemented by building a temporary retained-runs view and synchronizing it back to the remote root.
 
+The remote rsync destination is the configured `remote_root` with the run ID appended directly; completed run directories are not nested under an additional `runs/` prefix in the remote URL.
+
 ## Health checks
 
 Two health interfaces are implemented in code.

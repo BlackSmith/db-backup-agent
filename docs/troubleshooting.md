@@ -101,13 +101,13 @@ The run ends with `sync_failed` or a `run_error` from source `sync`.
 
 - `RSYNC_REMOTE_HOST`, `RSYNC_REMOTE_USER`, and `RSYNC_REMOTE_PASSWORD`
 - network reachability to the rsync server
-- `RSYNC_REMOTE_PATH` points to the rsync module name, not a filesystem path beginning with `/`
+- `RSYNC_REMOTE_PATH` points to the rsync module name or remote root suffix, not a filesystem path beginning with `/`
 - rsync daemon/module permissions on the remote side
 
 ### Notes
 
 - the rsync provider uses the `RSYNC_PASSWORD` environment variable for daemon authentication
-- the remote rsync module/path must already exist on the server
+- the remote rsync module/path must already exist on the server and is used as the publish root for completed runs
 - if rsync publish fails, the staging run directory is intentionally preserved
 
 ## Local mounted storage publish failures

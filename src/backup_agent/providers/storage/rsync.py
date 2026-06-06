@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from backup_agent.infrastructure.filesystem import safe_name
 from backup_agent.providers.databases.base import CommandResult, SubprocessCommandExecutor
 from backup_agent.services.retention import build_retention_plan
 
@@ -83,8 +82,7 @@ class RsyncStorageProvider(RemoteStorageProvider):
 
     def _build_run_destination(self, local_path: Path, remote_path: str | None) -> str:
         remote_root = self._normalize_remote_path(remote_path)
-        run_id = safe_name(local_path.name, local_path.name)
-        return f"rsync://{self.remote_user}@{self.remote_host}/{remote_root}/runs/{run_id}"
+        return f"rsync://{self.remote_user}@{self.remote_host}/{remote_root}/{local_path.name}"
 
     def _build_remote_root_destination(self) -> str:
         return f"rsync://{self.remote_user}@{self.remote_host}/{self._normalize_remote_path(None)}"
@@ -133,10 +131,9 @@ class RsyncStorageProvider(RemoteStorageProvider):
         return command
 
     def _populate_retention_view(self, temp_root: Path, retained_run_dirs: list[Path]) -> None:
-        runs_view = temp_root / "runs"
-        runs_view.mkdir(parents=True, exist_ok=True)
+        temp_root.mkdir(parents=True, exist_ok=True)
         for run_dir in retained_run_dirs:
-            link_path = runs_view / run_dir.name
+            link_path = temp_root / run_dir.name
             try:
                 link_path.symlink_to(run_dir)
             except OSError:

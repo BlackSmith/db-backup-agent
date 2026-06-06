@@ -93,6 +93,7 @@ Notes:
 
 - rsync configuration is considered incomplete unless host, user, and password are all present
 - the provider uses `rsync://` destinations and strips any leading `/` from this value before building the remote URL
+- the rsync destination is the configured `remote_root` with the run ID appended directly; completed run directories are not nested under an additional `runs/` prefix in the remote URL
 - prefer a module name such as `backup` or `backups`, not a filesystem path like `/backup`
 - the remote rsync module/path must already exist on the server
 

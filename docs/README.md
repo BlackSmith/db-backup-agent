@@ -68,6 +68,8 @@ Successful runs produce artifacts under:
 
 unless staging cleanup removes them after durable publication.
 
+Rsync publishing uses the configured remote root directly; it does not add an extra `runs/` segment to the rsync URL.
+
 ## Supported databases
 
 - PostgreSQL

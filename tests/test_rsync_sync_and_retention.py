@@ -46,7 +46,7 @@ class RsyncSyncAndRetentionTests(unittest.TestCase):
         self.assertEqual(result.status, "success")
         self.assertEqual(executor.commands[0][0], "rsync")
         self.assertNotIn("secret", " ".join(executor.commands[0]))
-        self.assertEqual(result.remote_destination, "rsync://backup@nas.local/backups/runs/20260603T090000Z-abcdef12")
+        self.assertEqual(result.remote_destination, "rsync://backup@nas.local/backups/20260603T090000Z-abcdef12")
         self.assertEqual(executor.envs[0]["RSYNC_PASSWORD"], "secret")
 
     def test_sync_failure_is_reported_and_local_path_is_preserved(self) -> None:
