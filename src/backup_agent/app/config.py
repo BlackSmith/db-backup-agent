@@ -27,6 +27,14 @@ class AppConfig:
     rsync_remote_host: str = ""
     rsync_remote_user: str = ""
     rsync_remote_password: str = ""
+    ftp_host: str = ""
+    ftp_port: int = 21
+    ftp_user: str = ""
+    ftp_password: str = ""
+    ftp_remote_path: str = "/backups"
+    ftp_tls: bool = False
+    ftp_passive: bool = True
+    ftp_timeout: float = 30.0
     backup_time: time = field(default_factory=lambda: time(2, 0))
     backup_retention_days: int = 7
     rsync_remote_path: str = "/backups"
@@ -51,6 +59,12 @@ class AppConfig:
         return self.backup_local_storage is not None
 
     @property
+    def has_ftp_storage(self) -> bool:
+        """Return whether FTP / FTPS credentials are available."""
+
+        return bool(self.ftp_host and self.ftp_user and self.ftp_password)
+
+    @property
     def enabled_storage_backends(self) -> tuple[str, ...]:
         """Return configured storage backends in execution order."""
 
@@ -59,6 +73,8 @@ class AppConfig:
             backends.append("local")
         if self.has_rsync_storage:
             backends.append("rsync")
+        if self.has_ftp_storage:
+            backends.append("ftp")
         return tuple(backends)
 
     @property
@@ -103,6 +119,32 @@ class AppConfig:
             backup_retention_days_raw, errors
         )
 
+        ftp_host = source.get("FTP_HOST", "").strip()
+        ftp_user = source.get("FTP_USER", "").strip()
+        ftp_password = source.get("FTP_PASSWORD", "").strip()
+        ftp_remote_path_raw = source.get("FTP_REMOTE_PATH", "").strip()
+        ftp_port_raw = source.get("FTP_PORT", "").strip()
+        ftp_tls_raw = source.get("FTP_TLS", "").strip()
+        ftp_passive_raw = source.get("FTP_PASSIVE", "").strip()
+        ftp_timeout_raw = source.get("FTP_TIMEOUT", "").strip()
+        ftp_credentials = {
+            "FTP_HOST": ftp_host,
+            "FTP_USER": ftp_user,
+            "FTP_PASSWORD": ftp_password,
+        }
+        provided_ftp_credentials = [name for name, value in ftp_credentials.items() if value]
+        if provided_ftp_credentials and len(provided_ftp_credentials) != len(ftp_credentials):
+            missing = [name for name, value in ftp_credentials.items() if not value]
+            errors.append(
+                "FTP_* configuration is incomplete; missing: " + ", ".join(missing)
+            )
+
+        ftp_port = cls._parse_port(ftp_port_raw, errors)
+        ftp_remote_path = ftp_remote_path_raw or "/backups"
+        ftp_tls = cls._parse_bool(ftp_tls_raw, False, errors, "FTP_TLS")
+        ftp_passive = cls._parse_bool(ftp_passive_raw, True, errors, "FTP_PASSIVE")
+        ftp_timeout = cls._parse_timeout(ftp_timeout_raw, 30.0, errors)
+
         rsync_remote_path = source.get("RSYNC_REMOTE_PATH", "/backups").strip() or "/backups"
         local_backup_dir = Path(
             source.get("LOCAL_BACKUP_DIR", "/.temporary_storage").strip() or "/.temporary_storage"
@@ -121,9 +163,9 @@ class AppConfig:
 
         if not backup_local_storage and not (
             rsync_remote_host and rsync_remote_user and rsync_remote_password
-        ):
+        ) and not (ftp_host and ftp_user and ftp_password):
             errors.append(
-                "At least one storage backend must be configured via BACKUP_LOCAL_STORAGE or complete RSYNC_* settings"
+                "At least one storage backend must be configured via BACKUP_LOCAL_STORAGE, complete RSYNC_* settings, or complete FTP_* settings"
             )
 
         if errors:
@@ -133,6 +175,14 @@ class AppConfig:
             rsync_remote_host=rsync_remote_host,
             rsync_remote_user=rsync_remote_user,
             rsync_remote_password=rsync_remote_password,
+            ftp_host=ftp_host,
+            ftp_port=ftp_port,
+            ftp_user=ftp_user,
+            ftp_password=ftp_password,
+            ftp_remote_path=ftp_remote_path,
+            ftp_tls=ftp_tls,
+            ftp_passive=ftp_passive,
+            ftp_timeout=ftp_timeout,
             backup_time=backup_time,
             backup_retention_days=backup_retention_days,
             rsync_remote_path=rsync_remote_path,
@@ -171,6 +221,46 @@ class AppConfig:
             errors.append("BACKUP_RETENTION_DAYS must be greater than or equal to 1")
             return 1
         return parsed
+
+    @staticmethod
+    def _parse_port(value: str, errors: list[str]) -> int:
+        if not value:
+            return 21
+        try:
+            parsed = int(value)
+        except ValueError:
+            errors.append(f"FTP_PORT must be an integer, got {value!r}")
+            return 21
+        if not 1 <= parsed <= 65535:
+            errors.append("FTP_PORT must be between 1 and 65535")
+            return 21
+        return parsed
+
+    @staticmethod
+    def _parse_timeout(value: str, default: float, errors: list[str]) -> float:
+        if not value:
+            return default
+        try:
+            parsed = float(value)
+        except ValueError:
+            errors.append(f"FTP_TIMEOUT must be a number, got {value!r}")
+            return default
+        if parsed <= 0:
+            errors.append("FTP_TIMEOUT must be greater than 0")
+            return default
+        return parsed
+
+    @staticmethod
+    def _parse_bool(value: str, default: bool, errors: list[str], label: str) -> bool:
+        if not value:
+            return default
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+        errors.append(f"{label} must be a boolean value, got {value!r}")
+        return default
 
     @staticmethod
     def _parse_timezone(value: str, errors: list[str]) -> ZoneInfo:

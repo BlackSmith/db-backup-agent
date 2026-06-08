@@ -74,8 +74,8 @@ class LocalMountedStorageProviderTests(unittest.TestCase):
             new_run = runs_root / "20260609T090000Z-bbb22222"
             old_run.mkdir(parents=True)
             new_run.mkdir(parents=True)
-            (old_run / "manifest.json").write_text('{"finished_at": "2026-05-20T09:05:00+00:00"}', encoding="utf-8")
-            (new_run / "manifest.json").write_text('{"finished_at": "2026-06-02T09:05:00+00:00"}', encoding="utf-8")
+            (old_run / "manifest.json").write_text('{"finished_at": "2026-06-01T09:05:00+00:00"}', encoding="utf-8")
+            (new_run / "manifest.json").write_text('{"finished_at": "2026-06-09T09:05:00+00:00"}', encoding="utf-8")
 
             provider = LocalDirectoryStorageProvider(storage_root=root)
             result = provider.cleanup(runs_root, 5)

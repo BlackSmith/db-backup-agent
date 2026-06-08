@@ -9,12 +9,14 @@ from .base import (
 )
 from .composite import CompositeStorageProvider
 from .factory import build_storage_provider
+from .ftp import FtpStorageProvider
 from .local_directory import LocalDirectoryStorageProvider
 from .rsync import RsyncStorageProvider
 
 __all__ = [
     "CommandExecutor",
     "CompositeStorageProvider",
+    "FtpStorageProvider",
     "LocalDirectoryStorageProvider",
     "RemoteCleanupResult",
     "RemoteStorageError",

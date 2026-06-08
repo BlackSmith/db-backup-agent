@@ -97,6 +97,81 @@ Notes:
 - prefer a module name such as `backup` or `backups`, not a filesystem path like `/backup`
 - the remote rsync module/path must already exist on the server
 
+### FTP / FTPS storage
+
+#### `FTP_HOST`
+
+Hostname or IP address of the FTP or FTPS server.
+
+#### `FTP_PORT`
+
+FTP port number.
+
+Default:
+
+```text
+21
+```
+
+#### `FTP_USER`
+
+Login user name.
+
+#### `FTP_PASSWORD`
+
+Login password.
+
+#### `FTP_REMOTE_PATH`
+
+Remote root directory where runs are stored.
+
+Default:
+
+```text
+/backups
+```
+
+#### `FTP_TLS`
+
+Enable explicit FTPS using `ftplib.FTP_TLS`.
+
+Default:
+
+```text
+false
+```
+
+Notes:
+
+- explicit FTPS is used rather than implicit FTPS
+- when enabled, the provider connects, logs in, and protects the data channel with `prot_p()`
+
+#### `FTP_PASSIVE`
+
+Enable passive mode for FTP data transfers.
+
+Default:
+
+```text
+true
+```
+
+#### `FTP_TIMEOUT`
+
+Connection timeout in seconds.
+
+Default:
+
+```text
+30
+```
+
+Notes:
+
+- `FTP_HOST`, `FTP_USER`, and `FTP_PASSWORD` must all be set together
+- FTP configuration is treated as incomplete if only part of that credential set is provided
+- FTP retention and publishing use the remote destination directly and maintain a `latest` marker under the configured remote root
+
 ## Optional variables
 
 ### `LOCAL_BACKUP_DIR`
@@ -165,6 +240,17 @@ export BACKUP_TIME=02:00
 export BACKUP_RETENTION_DAYS=7
 ```
 
+### FTP / FTPS only
+
+```bash
+export FTP_HOST=ftp.example
+export FTP_USER=backup
+export FTP_PASSWORD=secret
+export FTP_TLS=true
+export BACKUP_TIME=02:00
+export BACKUP_RETENTION_DAYS=7
+```
+
 ### mounted local storage only
 
 ```bash
@@ -173,13 +259,26 @@ export BACKUP_TIME=02:00
 export BACKUP_RETENTION_DAYS=7
 ```
 
-### both backends
+### rsync + FTP / FTPS
 
 ```bash
-export BACKUP_LOCAL_STORAGE=/mnt/backups
 export RSYNC_REMOTE_HOST=nas.local
 export RSYNC_REMOTE_USER=backup
 export RSYNC_REMOTE_PASSWORD=secret
+export FTP_HOST=ftp.example
+export FTP_USER=backup
+export FTP_PASSWORD=secret
+export BACKUP_TIME=02:00
+export BACKUP_RETENTION_DAYS=7
+```
+
+### local + FTP / FTPS
+
+```bash
+export BACKUP_LOCAL_STORAGE=/mnt/backups
+export FTP_HOST=ftp.example
+export FTP_USER=backup
+export FTP_PASSWORD=secret
 export BACKUP_TIME=02:00
 export BACKUP_RETENTION_DAYS=7
 ```
@@ -191,6 +290,7 @@ Configuration validation fails when:
 - `BACKUP_TIME` is missing or invalid
 - `BACKUP_RETENTION_DAYS` is missing, not numeric, or less than `1`
 - rsync host/user/password are only partially configured
+- FTP host/user/password are only partially configured
 - both `BACKUP_LOCAL_STORAGE` and `LOCAL_BACKUP_DIR` point to the same directory
 - no storage backend is configured
 - `LOCAL_BACKUP_DIR` or `BACKUP_LOCAL_STORAGE` is not writable

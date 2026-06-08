@@ -372,6 +372,7 @@ Initial implementations:
 
 - `rsync` remote storage via `RSYNC_*`
 - mounted local directory storage via `BACKUP_LOCAL_STORAGE`
+- planned follow-up: FTP/FTPS remote storage via `FTP_*`
 
 The backends can be enabled independently or together.
 
@@ -649,6 +650,7 @@ Initial implementations:
 
 Possible future implementations:
 
+- `FtpStorageProvider`
 - `S3StorageProvider`
 - `WebDAVStorageProvider`
 - `SMBStorageProvider`

@@ -10,6 +10,7 @@ from pathlib import Path
 from backup_agent.app.config import AppConfig
 from backup_agent.providers.storage import (
     CompositeStorageProvider,
+    FtpStorageProvider,
     LocalDirectoryStorageProvider,
     RsyncStorageProvider,
     build_storage_provider,
@@ -62,6 +63,19 @@ class StorageBackendSelectionTests(unittest.TestCase):
 
             self.assertIsInstance(provider, RsyncStorageProvider)
 
+    def test_build_storage_provider_returns_ftp_backend_when_only_ftp_is_configured(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = self._base_config(
+                temp_dir,
+                ftp_host="ftp.example",
+                ftp_user="backup",
+                ftp_password="secret",
+            )
+
+            provider = build_storage_provider(config)
+
+            self.assertIsInstance(provider, FtpStorageProvider)
+
     def test_build_storage_provider_returns_composite_backend_when_both_are_configured(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as mounted_dir:
             config = self._base_config(
@@ -76,23 +90,56 @@ class StorageBackendSelectionTests(unittest.TestCase):
 
             self.assertIsInstance(provider, CompositeStorageProvider)
 
+    def test_build_storage_provider_returns_composite_backend_with_ftp_and_local(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as mounted_dir:
+            config = self._base_config(
+                temp_dir,
+                backup_local_storage=Path(mounted_dir),
+                ftp_host="ftp.example",
+                ftp_user="backup",
+                ftp_password="secret",
+            )
+
+            provider = build_storage_provider(config)
+
+            self.assertIsInstance(provider, CompositeStorageProvider)
+
+    def test_build_storage_provider_returns_composite_backend_with_rsync_and_ftp(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = self._base_config(
+                temp_dir,
+                rsync_remote_host="nas.local",
+                rsync_remote_user="backup",
+                rsync_remote_password="secret",
+                ftp_host="ftp.example",
+                ftp_user="backup",
+                ftp_password="secret",
+            )
+
+            provider = build_storage_provider(config)
+
+            self.assertIsInstance(provider, CompositeStorageProvider)
+
     def test_composite_storage_provider_runs_all_backends_in_order(self) -> None:
         first = RecordingStorageProvider("local")
         second = RecordingStorageProvider("rsync")
-        provider = CompositeStorageProvider(providers=[first, second])
+        third = RecordingStorageProvider("ftp")
+        provider = CompositeStorageProvider(providers=[first, second, third])
 
         local_path = Path("/tmp/run")
         sync_result = provider.sync(local_path, "runs/custom")
         cleanup_result = provider.cleanup(Path("/tmp/runs"), 7)
 
         self.assertEqual(sync_result.status, "success")
-        self.assertEqual(sync_result.remote_destination, "local | rsync")
+        self.assertEqual(sync_result.remote_destination, "local | rsync | ftp")
         self.assertEqual(cleanup_result.status, "success")
-        self.assertEqual(cleanup_result.remote_destination, "local | rsync")
+        self.assertEqual(cleanup_result.remote_destination, "local | rsync | ftp")
         self.assertEqual(first.sync_calls[0][1], "runs/custom")
         self.assertEqual(second.sync_calls[0][1], "runs/custom")
+        self.assertEqual(third.sync_calls[0][1], "runs/custom")
         self.assertEqual(first.cleanup_calls[0][1], 7)
         self.assertEqual(second.cleanup_calls[0][1], 7)
+        self.assertEqual(third.cleanup_calls[0][1], 7)
 
 
 if __name__ == "__main__":

@@ -110,6 +110,25 @@ The run ends with `sync_failed` or a `run_error` from source `sync`.
 - the remote rsync module/path must already exist on the server and is used as the publish root for completed runs
 - if rsync publish fails, the staging run directory is intentionally preserved
 
+## FTP / FTPS publish failures
+
+### Symptom
+
+The run ends with `sync_failed` or a `run_error` from source `sync`.
+
+### What to check
+
+- `FTP_HOST`, `FTP_USER`, and `FTP_PASSWORD`
+- `FTP_TLS` matches the server's expected mode
+- `FTP_REMOTE_PATH` exists or can be created by the provider
+- passive mode and timeout settings are appropriate for the server
+
+### Notes
+
+- FTP passwords are masked in logs
+- FTP / FTPS retention inventories remote run directories and keeps ambiguous runs rather than deleting them blindly
+- the provider maintains a remote `latest` marker after successful publish or cleanup
+
 ## Local mounted storage publish failures
 
 ### Symptom

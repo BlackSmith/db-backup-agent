@@ -89,7 +89,8 @@ Depending on config, the run is published to:
 
 - local mounted storage
 - rsync remote storage
-- both
+- FTP / FTPS remote storage
+- any combination of the above
 
 ### 9. Retention cleanup
 
@@ -191,6 +192,30 @@ The provider publishes staged content with rsync and uses:
 Retention is implemented by building a temporary retained-runs view and synchronizing it back to the remote root.
 
 The remote rsync destination is the configured `remote_root` with the run ID appended directly; completed run directories are not nested under an additional `runs/` prefix in the remote URL.
+
+### FTP / FTPS backend
+
+The FTP provider publishes the full run directory under:
+
+```text
+<FTP_REMOTE_PATH>/runs/<run-id>/
+```
+
+It also updates a simple `latest` marker file at:
+
+```text
+<FTP_REMOTE_PATH>/latest
+```
+
+Retention is remote-state-driven:
+
+- the provider inventories remote run directories
+- it reads each remote `manifest.json` when available
+- it keeps unreadable or ambiguous runs rather than deleting them blindly
+- it deletes only expired remote run directories
+- it refreshes `latest` after cleanup
+
+FTP mode uses standard FTP; FTPS mode uses explicit TLS via `ftplib.FTP_TLS`.
 
 ## Health checks
 

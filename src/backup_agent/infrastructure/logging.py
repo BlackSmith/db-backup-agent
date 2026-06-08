@@ -16,6 +16,7 @@ from backup_agent.app.config import AppConfig
 _SECRET_KEYS = {
     "password",
     "rsync_remote_password",
+    "ftp_password",
     "pgpassword",
     "mariadbpassword",
     "secret",
@@ -103,6 +104,7 @@ _ERROR_TEXT_REDACTIONS = [
     re.compile(r"(?i)(pgpassword\s*=\s*)([^\s]+)"),
     re.compile(r"(?i)(mariadbpassword\s*=\s*)([^\s]+)"),
     re.compile(r"(?i)(rsync_password\s*=\s*)([^\s]+)"),
+    re.compile(r"(?i)(ftp_password\s*=\s*)([^\s]+)"),
     re.compile(r"(?i)(--password-file=)([^\s]+)"),
 ]
 

@@ -93,6 +93,7 @@ Implementation notes for each task were written to:
 - Metrics endpoints are not yet implemented.
 - Current rsync retention still derives the remote deletion set from transient local staging state; this is unsafe for ransomware or staging-loss scenarios and should be replaced by remote-manifest-based retention.
 - Restore workflows, encryption, notifications, and additional storage backends remain future work.
+- FTP/FTPS storage support is a planned follow-up so the agent can publish completed runs and apply retention on servers that expose FTP-family storage instead of rsync or mounted local storage.
 
 ## Recommended next steps
 
@@ -106,5 +107,6 @@ If the project moves into phase 2, the most valuable follow-up areas are:
 6. improving retry and failure recovery behavior
 7. adding an HTTP health/metrics endpoint if operationally useful
 8. redesign rsync retention so it inventories remote manifests, deletes only expired remote runs, and never re-uploads retained manifests during cleanup
-9. validating the Docker image build in CI
-10. preparing restore workflows and checksum support
+9. design and implement FTP/FTPS storage publishing with retention semantics consistent with the existing storage abstraction
+10. validating the Docker image build in CI
+11. preparing restore workflows and checksum support

@@ -113,6 +113,47 @@ class ConfigAndSchedulerTests(unittest.TestCase):
             self.assertEqual(config.enabled_storage_backends, ("local", "rsync"))
             self.assertEqual(config.storage_backend, "local+rsync")
 
+    def test_load_config_allows_ftp_only_storage(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env = {
+                "FTP_HOST": "ftp.example",
+                "FTP_USER": "backup",
+                "FTP_PASSWORD": "secret",
+                "BACKUP_TIME": "02:30",
+                "BACKUP_RETENTION_DAYS": "14",
+                "LOCAL_BACKUP_DIR": temp_dir,
+                "TZ": "UTC",
+            }
+
+            config = AppConfig.from_env(env)
+
+            self.assertTrue(config.has_ftp_storage)
+            self.assertEqual(config.ftp_port, 21)
+            self.assertEqual(config.ftp_remote_path, "/backups")
+            self.assertFalse(config.ftp_tls)
+            self.assertTrue(config.ftp_passive)
+            self.assertEqual(config.ftp_timeout, 30.0)
+            self.assertEqual(config.enabled_storage_backends, ("ftp",))
+            self.assertEqual(config.storage_backend, "ftp")
+
+    def test_load_config_allows_local_and_ftp_storage(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as mounted_dir:
+            env = {
+                "BACKUP_LOCAL_STORAGE": mounted_dir,
+                "FTP_HOST": "ftp.example",
+                "FTP_USER": "backup",
+                "FTP_PASSWORD": "secret",
+                "BACKUP_TIME": "02:30",
+                "BACKUP_RETENTION_DAYS": "14",
+                "LOCAL_BACKUP_DIR": temp_dir,
+                "TZ": "UTC",
+            }
+
+            config = AppConfig.from_env(env)
+
+            self.assertEqual(config.enabled_storage_backends, ("local", "ftp"))
+            self.assertEqual(config.storage_backend, "local+ftp")
+
     def test_load_config_rejects_invalid_values(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             env = {
@@ -146,6 +187,42 @@ class ConfigAndSchedulerTests(unittest.TestCase):
                 AppConfig.from_env(env)
 
         self.assertIn("RSYNC_* configuration is incomplete", str(cm.exception))
+
+    def test_load_config_rejects_partial_ftp_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env = {
+                "FTP_HOST": "ftp.example",
+                "FTP_USER": "backup",
+                "BACKUP_TIME": "02:30",
+                "BACKUP_RETENTION_DAYS": "14",
+                "LOCAL_BACKUP_DIR": temp_dir,
+                "TZ": "UTC",
+            }
+
+            with self.assertRaises(ConfigError) as cm:
+                AppConfig.from_env(env)
+
+        self.assertIn("FTP_* configuration is incomplete", str(cm.exception))
+
+    def test_load_config_rejects_invalid_ftp_values(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base_env = {
+                "FTP_HOST": "ftp.example",
+                "FTP_USER": "backup",
+                "FTP_PASSWORD": "secret",
+                "BACKUP_TIME": "02:30",
+                "BACKUP_RETENTION_DAYS": "14",
+                "LOCAL_BACKUP_DIR": temp_dir,
+                "TZ": "UTC",
+            }
+
+            with self.assertRaises(ConfigError) as port_error:
+                AppConfig.from_env({**base_env, "FTP_PORT": "70000"})
+            self.assertIn("FTP_PORT", str(port_error.exception))
+
+            with self.assertRaises(ConfigError) as timeout_error:
+                AppConfig.from_env({**base_env, "FTP_TIMEOUT": "0"})
+            self.assertIn("FTP_TIMEOUT", str(timeout_error.exception))
 
     def test_scheduler_computes_next_run(self) -> None:
         scheduler = DailyScheduler(

@@ -78,8 +78,9 @@ Rsync publishing uses the configured remote root directly; it does not add an ex
 ## Supported storage backends
 
 - rsync daemon-style remote storage
+- FTP / FTPS remote storage
 - mounted local directory publishing
-- both backends together
+- any supported combination of the above
 
 ## Canonical user docs
 

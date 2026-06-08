@@ -92,6 +92,26 @@ docker run -d \
   backup-agent:local --schedule
 ```
 
+### Pattern 3: Docker operator with FTP / FTPS publishing
+
+```bash
+docker run -d \
+  --name backup-agent \
+  --restart unless-stopped \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /.temporary_storage:/.temporary_storage \
+  -e TZ=UTC \
+  -e BACKUP_TIME=02:00 \
+  -e BACKUP_RETENTION_DAYS=7 \
+  -e LOCAL_BACKUP_DIR=/.temporary_storage \
+  -e DOCKER_SOCKET_PATH=/var/run/docker.sock \
+  -e FTP_HOST=ftp.example \
+  -e FTP_USER=backup \
+  -e FTP_PASSWORD=change-me \
+  -e FTP_TLS=true \
+  backup-agent:local --schedule
+```
+
 ### Pattern 3: Docker Compose operator
 
 The repository currently contains a commented example in `docker-compose.yml`.
