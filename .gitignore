@@ -8,5 +8,4 @@ __pycache__/
 *.egg
 *.egg-info/
 .env
-storage/
 .temporary_storage/
