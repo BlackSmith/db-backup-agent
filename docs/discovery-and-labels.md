@@ -48,6 +48,7 @@ Accepted aliases:
 
 - PostgreSQL: `postgresql`, `postgres`, `pg`
 - MariaDB path: `mariadb`, `mysql`
+- Filesystem/archive path: `filesystem`, `files`, `directories`, `archive`
 
 If the explicit type is missing, the resolver tries to infer the database type from labels or environment variables.
 
@@ -165,6 +166,27 @@ Comma-separated lists are supported through generic or legacy database labels.
 ### All databases
 
 If no database list is resolved, the target is treated as `all_databases=True`.
+
+## Filesystem / archive metadata
+
+Containers can also expose filesystem/archive backup targets.
+
+### Filesystem labels
+
+```text
+backup_agent.enabled=true
+backup_agent.type=filesystem
+backup_agent.directories=/app/data,/var/lib/app/uploads
+```
+
+Behavior:
+
+- `backup_agent.directories` is a comma-separated list of absolute paths inside the target container
+- whitespace is trimmed
+- empty entries are ignored
+- the selected directories are copied into local staging, archived, and then published through the configured storage backend set
+
+If `backup_agent.type` is omitted but `backup_agent.directories` is present, the resolver treats the target as a filesystem/archive backup target.
 
 ## Port behavior
 

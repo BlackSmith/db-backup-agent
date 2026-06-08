@@ -21,6 +21,7 @@ from backup_agent.domain.status import (
 from backup_agent.infrastructure.logging import log_event
 from backup_agent.providers.databases import (
     DatabaseBackupProvider,
+    FilesystemArchiveBackupProvider,
     MariaDBBackupProvider,
     PostgreSQLBackupProvider,
 )

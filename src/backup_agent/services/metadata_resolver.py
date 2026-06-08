@@ -42,6 +42,8 @@ class ContainerMetadataResolver(MetadataResolver):
             return self._resolve_postgresql(container_id, container_name, labels, env)
         if db_type == "mariadb":
             return self._resolve_mariadb(container_id, container_name, labels, env)
+        if db_type == "filesystem":
+            return self._resolve_filesystem(container_id, container_name, labels)
 
         raise MetadataResolutionError(
             f"Container {container_name!r} ({container_id}) uses unsupported backup_agent.type {db_type!r}."
@@ -64,6 +66,8 @@ class ContainerMetadataResolver(MetadataResolver):
                 return "postgresql"
             if normalized in {"mariadb", "mysql"}:
                 return "mariadb"
+            if normalized in {"filesystem", "files", "directories", "archive"}:
+                return "filesystem"
             raise MetadataResolutionError(
                 f"Container {container_name!r} ({container_id}) has unsupported backup_agent.type {explicit_type!r}."
             )
@@ -109,6 +113,8 @@ class ContainerMetadataResolver(MetadataResolver):
             ],
         )
 
+        filesystem_signal = bool(parse_directory_list(labels.get("backup_agent.directories")))
+
         if postgres_signal and mariadb_signal:
             raise MetadataResolutionError(
                 f"Container {container_name!r} ({container_id}) contains both PostgreSQL and MariaDB metadata; set backup_agent.type explicitly."
@@ -117,6 +123,8 @@ class ContainerMetadataResolver(MetadataResolver):
             return "postgresql"
         if mariadb_signal:
             return "mariadb"
+        if filesystem_signal:
+            return "filesystem"
 
         raise MetadataResolutionError(
             f"Container {container_name!r} ({container_id}) does not declare enough metadata to infer a database type; set backup_agent.type explicitly."
@@ -223,6 +231,27 @@ class ContainerMetadataResolver(MetadataResolver):
             databases=databases,
         )
 
+    def _resolve_filesystem(
+        self,
+        container_id: str,
+        container_name: str,
+        labels: Mapping[str, str],
+    ) -> BackupTarget:
+        directories = parse_directory_list(labels.get("backup_agent.directories"))
+        if not directories:
+            raise MetadataResolutionError(
+                f"Container {container_name!r} ({container_id}) has invalid metadata: missing directories"
+            )
+        return BackupTarget(
+            container_id=container_id,
+            container_name=container_name,
+            db_type="filesystem",
+            host=container_name,
+            port=0,
+            directories=directories,
+            labels=dict(labels),
+        )
+
     def _build_target(
         self,
         *,
@@ -292,6 +321,15 @@ def parse_database_list(value: str | None) -> list[str]:
         return []
     databases = [part.strip() for part in value.split(",")]
     return [database for database in databases if database]
+
+
+def parse_directory_list(value: str | None) -> list[str]:
+    """Parse a comma-separated directory list."""
+
+    if value is None:
+        return []
+    directories = [part.strip() for part in value.split(",")]
+    return [directory for directory in directories if directory]
 
 
 def _is_enabled(labels: Mapping[str, str]) -> bool:

@@ -20,6 +20,7 @@ class ManifestTarget:
     port: int
     user: str | None = None
     databases: list[str] = field(default_factory=list)
+    directories: list[str] = field(default_factory=list)
     all_databases: bool = False
 
     @classmethod
@@ -32,6 +33,7 @@ class ManifestTarget:
             port=target.port,
             user=target.user,
             databases=list(target.databases),
+            directories=list(target.directories),
             all_databases=target.all_databases,
         )
 

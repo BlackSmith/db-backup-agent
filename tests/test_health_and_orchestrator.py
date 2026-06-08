@@ -81,6 +81,54 @@ class FakeProvider:
         return BackupProviderResult(provider="postgresql", target=target, status="success", artifacts=[artifact], errors=[])
 
 
+class FakeFilesystemDiscovery:
+    def discover(self):
+        return [
+            {
+                "id": "fs123",
+                "name": "files-app",
+                "labels": {
+                    "backup_agent.enabled": "true",
+                    "backup_agent.type": "filesystem",
+                    "backup_agent.directories": "/app/data,/var/lib/app/uploads",
+                },
+                "env": [],
+            }
+        ]
+
+
+class FakeFilesystemResolver:
+    def resolve(self, container):
+        from backup_agent.domain.backup_target import BackupTarget
+
+        return BackupTarget(
+            container_id=container["id"],
+            container_name=container["name"],
+            db_type="filesystem",
+            host=container["name"],
+            port=0,
+            directories=["/app/data", "/var/lib/app/uploads"],
+            labels=container["labels"],
+        )
+
+
+class FakeFilesystemProvider:
+    db_type = "filesystem"
+
+    def supports(self, target):
+        return target.db_type == self.db_type
+
+    def backup(self, target, output_dir):
+        from backup_agent.domain.artifact import BackupArtifact
+        from backup_agent.providers.databases.base import BackupProviderResult
+
+        artifact_path = output_dir / "filesystem" / "files-app" / "directories.tar.gz"
+        artifact_path.parent.mkdir(parents=True, exist_ok=True)
+        artifact_path.write_bytes(b"archive")
+        artifact = BackupArtifact(target=target, database=None, path=artifact_path, size=7, format="filesystem-tar-gzip")
+        return BackupProviderResult(provider="filesystem", target=target, status="success", artifacts=[artifact], errors=[])
+
+
 class FakeStorage:
     def __init__(self, *, sync_status: str = "success", cleanup_status: str = "success") -> None:
         self.synced = False
@@ -185,6 +233,28 @@ class HealthAndOrchestratorTests(unittest.TestCase):
             self.assertFalse((Path(temp_dir) / "latest").exists())
             self.assertTrue((Path(mounted_dir) / "runs" / run.run_id / "manifest.json").exists())
             self.assertTrue((Path(mounted_dir) / "runs" / run.run_id / "postgresql" / "postgres-app" / "appdb.dump").exists())
+
+    def test_orchestrator_supports_filesystem_archive_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as mounted_dir:
+            config = AppConfig(
+                backup_time=datetime.strptime("02:00", "%H:%M").time(),
+                backup_retention_days=7,
+                backup_local_storage=Path(mounted_dir),
+                local_backup_dir=Path(temp_dir),
+            )
+            orchestrator = BackupOrchestratorService(
+                config=config,
+                discovery=FakeFilesystemDiscovery(),
+                resolver=FakeFilesystemResolver(),
+                database_providers=[FakeFilesystemProvider()],
+                remote_storage=LocalDirectoryStorageProvider(storage_root=Path(mounted_dir)),
+                retention=FakeRetention(),
+            )
+            run = orchestrator.run_once()
+
+            self.assertEqual(run.status, "success")
+            self.assertTrue((Path(mounted_dir) / "runs" / run.run_id / "filesystem" / "files-app" / "directories.tar.gz").exists())
+            self.assertEqual(run.targets[0].directories, ["/app/data", "/var/lib/app/uploads"])
 
     def test_orchestrator_cleans_up_staging_when_only_local_storage_is_configured(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as mounted_dir:

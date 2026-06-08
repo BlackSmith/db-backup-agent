@@ -9,6 +9,7 @@ from backup_agent.services.metadata_resolver import (
     ContainerMetadataResolver,
     MetadataResolutionError,
     parse_database_list,
+    parse_directory_list,
 )
 
 
@@ -320,10 +321,55 @@ class DockerDiscoveryAndMetadataResolutionTests(unittest.TestCase):
 
         self.assertIn("backup_agent.type", str(cm.exception))
 
+    def test_filesystem_target_resolves_from_explicit_type_and_directories_label(self) -> None:
+        resolver = ContainerMetadataResolver()
+        target = resolver.resolve(
+            {
+                "id": "fs123",
+                "name": "/files-app",
+                "labels": {
+                    "backup_agent.enabled": "true",
+                    "backup_agent.type": "filesystem",
+                    "backup_agent.directories": "/app/data, /var/lib/app/uploads",
+                },
+                "env": [],
+            }
+        )
+
+        self.assertIsNotNone(target)
+        assert target is not None
+        self.assertEqual(target.db_type, "filesystem")
+        self.assertEqual(target.directories, ["/app/data", "/var/lib/app/uploads"])
+        self.assertEqual(target.container_name, "files-app")
+
+    def test_filesystem_target_can_be_inferred_from_directories_label(self) -> None:
+        resolver = ContainerMetadataResolver()
+        target = resolver.resolve(
+            {
+                "id": "fs124",
+                "name": "/files-app",
+                "labels": {
+                    "backup_agent.enabled": "true",
+                    "backup_agent.directories": "/srv/assets",
+                },
+                "env": [],
+            }
+        )
+
+        self.assertIsNotNone(target)
+        assert target is not None
+        self.assertEqual(target.db_type, "filesystem")
+        self.assertEqual(target.directories, ["/srv/assets"])
+
     def test_parse_database_list(self) -> None:
         self.assertEqual(parse_database_list(None), [])
         self.assertEqual(parse_database_list(""), [])
         self.assertEqual(parse_database_list("db1, db2 , ,db3"), ["db1", "db2", "db3"])
+
+    def test_parse_directory_list(self) -> None:
+        self.assertEqual(parse_directory_list(None), [])
+        self.assertEqual(parse_directory_list(""), [])
+        self.assertEqual(parse_directory_list("/a, /b , ,/c"), ["/a", "/b", "/c"])
 
 
 if __name__ == "__main__":

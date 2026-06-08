@@ -58,7 +58,7 @@ The application inspects running Docker containers and filters them to enabled t
 
 Each eligible container is normalized into a `BackupTarget`.
 
-### 6. Database backup execution
+### 6. Backup execution
 
 The correct provider is selected by `db_type`.
 
@@ -74,6 +74,14 @@ Possible artifact formats:
 Produced format:
 
 - `mariadb-sql` → `.sql`
+
+#### Filesystem / archive artifacts
+
+Produced format:
+
+- `filesystem-tar-gzip` → `.tar.gz`
+
+For filesystem/archive targets, the selected container directories are copied into local temporary staging first and then archived into a publishable artifact.
 
 ### 7. Manifest generation
 
@@ -136,6 +144,7 @@ Each target includes:
 - `port`
 - `user`
 - `databases`
+- `directories`
 - `all_databases`
 
 ### Artifact fields

@@ -16,5 +16,6 @@ class BackupTarget:
     password: str | None = None
     password_ref: str | None = None
     databases: list[str] = field(default_factory=list)
+    directories: list[str] = field(default_factory=list)
     all_databases: bool = False
     labels: dict[str, str] = field(default_factory=dict)

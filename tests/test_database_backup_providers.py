@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import gzip
+import io
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
 
 from backup_agent.domain.backup_target import BackupTarget
-from backup_agent.providers.databases import MariaDBBackupProvider, PostgreSQLBackupProvider
+from backup_agent.providers.databases import FilesystemArchiveBackupProvider, MariaDBBackupProvider, PostgreSQLBackupProvider
 
 
 class FakeExecutor:
@@ -60,9 +62,11 @@ class FakeDockerExecResult:
 
 
 class FakeDockerClient:
-    def __init__(self, results: list[FakeDockerExecResult] | None = None) -> None:
+    def __init__(self, results: list[FakeDockerExecResult] | None = None, archives: dict[str, bytes] | None = None) -> None:
         self.results = results or []
+        self.archives = archives or {}
         self.calls: list[dict[str, object]] = []
+        self.archive_calls: list[dict[str, object]] = []
 
     def exec_in_container(self, container_id, command, *, env=None, user=None, workdir=None, tty=False, stdout_handler=None, stderr_handler=None):
         self.calls.append({"container_id": container_id, "command": list(command), "env": dict(env or {})})
@@ -73,6 +77,15 @@ class FakeDockerClient:
         if stderr_handler is not None and result.stderr:
             stderr_handler(result.stderr)
         return result
+
+    def get_archive(self, container_id: str, path: str) -> bytes:
+        self.archive_calls.append({"container_id": container_id, "path": path})
+        key = f"{container_id}:{path}"
+        if key not in self.archives:
+            from backup_agent.infrastructure.docker import DockerSocketError
+
+            raise DockerSocketError(f"missing archive for {key}")
+        return self.archives[key]
 
 
 class DatabaseBackupProviderTests(unittest.TestCase):
@@ -109,6 +122,34 @@ class DatabaseBackupProviderTests(unittest.TestCase):
         )
         data.update(overrides)
         return BackupTarget(**data)
+
+    def _filesystem_target(self, **overrides) -> BackupTarget:
+        data = dict(
+            container_id="fs123",
+            container_name="files-app",
+            db_type="filesystem",
+            host="files-app",
+            port=0,
+            user=None,
+            password=None,
+            password_ref=None,
+            databases=[],
+            directories=["/app/data", "/var/lib/app/uploads"],
+            all_databases=False,
+            labels={"backup_agent.enabled": "true", "backup_agent.type": "filesystem", "backup_agent.directories": "/app/data,/var/lib/app/uploads"},
+        )
+        data.update(overrides)
+        return BackupTarget(**data)
+
+    def _build_tar_archive(self, entries: dict[str, bytes]) -> bytes:
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w") as archive:
+            for name, content in entries.items():
+                data = content if isinstance(content, bytes) else bytes(content)
+                info = tarfile.TarInfo(name=name)
+                info.size = len(data)
+                archive.addfile(info, io.BytesIO(data))
+        return buffer.getvalue()
 
     def test_postgresql_single_database_defaults_to_both_formats(self) -> None:
         executor = FakeExecutor()
@@ -264,6 +305,27 @@ class DatabaseBackupProviderTests(unittest.TestCase):
         self.assertTrue(result.artifacts)
         self.assertTrue(result.errors)
         self.assertIn("remote mariadb-dump failed", result.errors[0].message)
+
+    def test_filesystem_provider_archives_selected_directories(self) -> None:
+        docker_client = FakeDockerClient(
+            archives={
+                "fs123:/app/data": self._build_tar_archive({"data/file.txt": b"alpha"}),
+                "fs123:/var/lib/app/uploads": self._build_tar_archive({"uploads/image.png": b"beta"}),
+            }
+        )
+        provider = FilesystemArchiveBackupProvider(docker_client=docker_client)
+        target = self._filesystem_target()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = provider.backup(target, Path(temp_dir))
+            self.assertEqual(result.status, "success")
+            self.assertEqual(len(result.artifacts), 1)
+            artifact = result.artifacts[0]
+            self.assertEqual(artifact.format, "filesystem-tar-gzip")
+            self.assertTrue(artifact.path.exists())
+            self.assertEqual(len(docker_client.archive_calls), 2)
+            with tarfile.open(artifact.path, mode="r:gz") as archive:
+                names = sorted({member.name for member in archive.getmembers() if member.isfile()})
+            self.assertEqual(names, ["data/file.txt", "uploads/image.png"])
 
     def test_failed_command_is_reported_in_result(self) -> None:
         executor = FakeExecutor([(1, "", "boom"), (1, "", "boom")])

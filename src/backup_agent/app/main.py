@@ -11,7 +11,11 @@ from backup_agent.domain.status import STATUS_SUCCESS
 from backup_agent.infrastructure.docker import DockerApiClient
 from backup_agent.infrastructure.logging import configure_logging, log_config_validation, log_event
 from backup_agent.interfaces.cli import build_parser
-from backup_agent.providers.databases import MariaDBBackupProvider, PostgreSQLBackupProvider
+from backup_agent.providers.databases import (
+    FilesystemArchiveBackupProvider,
+    MariaDBBackupProvider,
+    PostgreSQLBackupProvider,
+)
 from backup_agent.providers.storage import build_storage_provider
 from backup_agent.services.discovery import DockerContainerDiscovery
 from backup_agent.services.metadata_resolver import ContainerMetadataResolver
@@ -77,6 +81,7 @@ def build_orchestrator(config: AppConfig) -> BackupOrchestratorService:
     database_providers = [
         PostgreSQLBackupProvider(docker_client=docker_client),
         MariaDBBackupProvider(docker_client=docker_client),
+        FilesystemArchiveBackupProvider(docker_client=docker_client),
     ]
     return BackupOrchestratorService(
         config=config,

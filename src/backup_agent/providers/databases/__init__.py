@@ -8,6 +8,7 @@ from .base import (
     DatabaseBackupProvider,
     SubprocessCommandExecutor,
 )
+from .filesystem import FilesystemArchiveBackupProvider
 from .mariadb import MariaDBBackupProvider
 from .postgresql import PostgreSQLBackupProvider
 
@@ -17,6 +18,7 @@ __all__ = [
     "CommandExecutor",
     "CommandResult",
     "DatabaseBackupProvider",
+    "FilesystemArchiveBackupProvider",
     "MariaDBBackupProvider",
     "PostgreSQLBackupProvider",
     "SubprocessCommandExecutor",

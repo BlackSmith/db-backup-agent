@@ -371,8 +371,8 @@ Recommended `manifest.json` fields:
 Initial implementations:
 
 - `rsync` remote storage via `RSYNC_*`
+- FTP/FTPS remote storage via `FTP_*`
 - mounted local directory storage via `BACKUP_LOCAL_STORAGE`
-- planned follow-up: FTP/FTPS remote storage via `FTP_*`
 
 The backends can be enabled independently or together.
 
@@ -828,6 +828,7 @@ This distinction should be explicit in the implementation to avoid incorrect ful
 - restore workflow
 - backup encryption
 - notification hooks
+- label-driven archive backups for arbitrary container directories
 
 ---
 
@@ -862,8 +863,9 @@ Implemented modules include:
 - shared dump execution strategy via `backup_agent.dump_method` with `auto`, `exec`, and `local` modes for PostgreSQL and MariaDB
 - local staging and JSON manifest generation
 - rsync synchronization and retention cleanup
+- FTP/FTPS synchronization and retention cleanup via `FTP_*`
 - mounted local directory storage via `BACKUP_LOCAL_STORAGE`
-- composite storage backend selection for local-only, rsync-only, or combined publish flows
+- composite storage backend selection for local-only, rsync-only, FTP-only, or combined publish flows
 - post-success staging cleanup after durable publication
 - default PostgreSQL and MariaDB port fallback behavior in metadata resolution
 - generic `backup_agent.*` labels with backward-compatible legacy label support

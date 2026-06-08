@@ -119,6 +119,7 @@ class LocalStagingAndManifestTests(unittest.TestCase):
             self.assertEqual(payload["run_id"], run.run_id)
             self.assertEqual(payload["status"], "success")
             self.assertEqual(payload["targets"][0]["container_name"], "postgres-app")
+            self.assertEqual(payload["targets"][0]["directories"], [])
             self.assertEqual(payload["artifacts"][0]["path"], "postgresql/postgres-app/appdb.dump")
             self.assertNotIn("secret", json.dumps(payload))
             self.assertEqual(payload["errors"][0]["output_path"], "postgresql/postgres-app/appdb.dump")

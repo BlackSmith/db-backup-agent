@@ -8,6 +8,7 @@ import socket
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote
 
 
 class DockerSocketError(RuntimeError):
@@ -105,6 +106,17 @@ class DockerApiClient:
             stderr=stderr_bytes,
             exec_id=exec_id,
         )
+
+    def get_archive(self, container_id: str, path: str) -> bytes:
+        encoded_path = quote(path, safe="/")
+        response, connection = self._request_response(
+            "GET",
+            f"/containers/{container_id}/archive?path={encoded_path}",
+        )
+        try:
+            return response.read()
+        finally:
+            connection.close()
 
     def ping(self) -> bool:
         try:

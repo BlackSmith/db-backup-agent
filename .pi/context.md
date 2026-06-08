@@ -12,8 +12,9 @@ Completed implementation areas:
 - PostgreSQL and MariaDB backup providers
 - local staging directories and manifest generation
 - rsync-based remote synchronization and retention cleanup
-- optional mounted local storage publishing through `BACKUP_LOCAL_STORAGE`
-- composite storage backend selection for local-only, rsync-only, or combined publishing
+- optional mounted local storage publishing through `BACKUP_LOCAL_STORAGE`, with `BACKUP_RETENTION_DAYS` applied to the published local storage but not to transient staging
+- FTP/FTPS remote storage via `FTP_*`
+- composite storage backend selection for local-only, rsync-only, FTP-only, or combined publishing
 - real CLI/runtime bootstrap for live backup execution
 - post-success staging cleanup for successful publish flows
 - default PostgreSQL and MariaDB port fallback behavior in metadata resolution
@@ -78,6 +79,7 @@ Implementation notes for each task were written to:
 - `.pi/done/19-postgresql-client-version-compatibility.md`
 - `.pi/done/20-database-remote-exec-with-label-selected-strategy.md`
 - `.pi/done/21-generic-backup-agent-labels-and-mysql-mariadb-env-aliases.md`
+- `.pi/done/24-ftp-ftps-storage-provider.md`
 
 ## Known trade-offs / follow-up candidates
 
@@ -93,7 +95,8 @@ Implementation notes for each task were written to:
 - Metrics endpoints are not yet implemented.
 - Current rsync retention still derives the remote deletion set from transient local staging state; this is unsafe for ransomware or staging-loss scenarios and should be replaced by remote-manifest-based retention.
 - Restore workflows, encryption, notifications, and additional storage backends remain future work.
-- FTP/FTPS storage support is a planned follow-up so the agent can publish completed runs and apply retention on servers that expose FTP-family storage instead of rsync or mounted local storage.
+- FTP/FTPS storage support is implemented; future work should validate it against real server deployments and harden any protocol-specific edge cases.
+- A new follow-up task has been shaped for label-driven container directory archive backups.
 
 ## Recommended next steps
 
@@ -107,6 +110,7 @@ If the project moves into phase 2, the most valuable follow-up areas are:
 6. improving retry and failure recovery behavior
 7. adding an HTTP health/metrics endpoint if operationally useful
 8. redesign rsync retention so it inventories remote manifests, deletes only expired remote runs, and never re-uploads retained manifests during cleanup
-9. design and implement FTP/FTPS storage publishing with retention semantics consistent with the existing storage abstraction
-10. validating the Docker image build in CI
-11. preparing restore workflows and checksum support
+9. validate FTP/FTPS storage publishing against real-world server behavior and refine any protocol trade-offs
+10. implement label-driven container directory archive backups for arbitrary paths inside a target container
+11. validating the Docker image build in CI
+12. preparing restore workflows and checksum support
