@@ -9,7 +9,7 @@ The agent:
 1. lists running containers through the Docker API
 2. filters them to `backup_agent.enabled=true`
 3. inspects each enabled container
-4. resolves metadata from labels first, then from container environment variables
+4. resolves target type from `backup_agent.type` and resolves backup metadata from labels first, then from container environment variables
 
 Only running containers are discovered.
 
@@ -32,7 +32,7 @@ Accepted truthy values for enablement are:
 
 ### Explicit type label
 
-Recommended:
+Required:
 
 ```text
 backup_agent.type=postgresql
@@ -44,15 +44,27 @@ or
 backup_agent.type=mariadb
 ```
 
+or for combined database + directory backup:
+
+```text
+backup_agent.type=postgresql,filesystem
+```
+
 Accepted aliases:
 
 - PostgreSQL: `postgresql`, `postgres`, `pg`
 - MariaDB path: `mariadb`, `mysql`
 - Filesystem/archive path: `filesystem`, `files`, `directories`, `archive`
 
-If the explicit type is missing, the resolver tries to infer the database type from labels or environment variables.
+Type-selection rules:
 
-If both PostgreSQL and MariaDB signals are present, resolution fails and the type must be set explicitly.
+- `backup_agent.type` is required for every `backup_agent.enabled=true` container
+- the value may be a comma-separated list
+- whitespace is trimmed
+- empty entries are ignored
+- duplicate values are deduplicated
+- unknown values fail metadata resolution
+- conflicting database-engine combinations such as `postgresql,mariadb` fail metadata resolution
 
 ## Generic labels
 
@@ -185,9 +197,15 @@ Behavior:
 - whitespace is trimmed
 - empty entries are ignored
 - the selected directories are copied into local staging, archived, and then published through the configured storage backend set
-- when a container also declares database metadata, the resolver keeps the database target and adds a separate filesystem/archive target for the same container
+- filesystem/archive backup runs only when `backup_agent.type` explicitly includes `filesystem`
+- when a container declares both a database type and `filesystem`, the resolver keeps the database target and adds a separate filesystem/archive target for the same container
 
-If `backup_agent.type` is omitted but `backup_agent.directories` is present, the resolver treats the target as a filesystem/archive backup target.
+Example combined configuration:
+
+```text
+backup_agent.type=postgresql,filesystem
+backup_agent.directories=/app/data,/var/lib/app/uploads
+```
 
 ## Port behavior
 

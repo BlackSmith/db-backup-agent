@@ -17,6 +17,7 @@ from backup_agent.domain.run_summary import RunSummary
 from backup_agent.infrastructure.logging import configure_logging, log_event
 from backup_agent.interfaces.health import check_liveness, check_readiness
 from backup_agent.providers.storage import LocalDirectoryStorageProvider
+from backup_agent.services.metadata_resolver import ContainerMetadataResolver
 from backup_agent.services.orchestrator import BackupOrchestratorService
 
 
@@ -127,6 +128,29 @@ class FakeFilesystemResolver:
             directories=["/app/data", "/var/lib/app/uploads"],
             labels=container["labels"],
         )
+
+
+class FakeCombinedDiscovery:
+    def __init__(self, db_type: str = "postgresql") -> None:
+        self.db_type = db_type
+
+    def discover(self):
+        return [
+            {
+                "id": "abc123",
+                "name": "postgres-app",
+                "labels": {
+                    "backup_agent.enabled": "true",
+                    "backup_agent.type": f"{self.db_type},filesystem",
+                    "backup_agent.user": "app" if self.db_type == "postgresql" else "root",
+                    "backup_agent.host": "db",
+                    "backup_agent.password": "secret",
+                    "backup_agent.database": "appdb",
+                    "backup_agent.directories": "/app/data",
+                },
+                "env": [],
+            }
+        ]
 
 
 class FakeFilesystemProvider:
@@ -322,8 +346,8 @@ class HealthAndOrchestratorTests(unittest.TestCase):
             )
             orchestrator = BackupOrchestratorService(
                 config=config,
-                discovery=FakeDiscovery(),
-                resolver=FakeCombinedResolver(),
+                discovery=FakeCombinedDiscovery(),
+                resolver=ContainerMetadataResolver(),
                 database_providers=[FakeProvider(), FakeFilesystemProvider()],
                 remote_storage=LocalDirectoryStorageProvider(storage_root=Path(mounted_dir)),
                 retention=FakeRetention(),
@@ -347,8 +371,8 @@ class HealthAndOrchestratorTests(unittest.TestCase):
             )
             orchestrator = BackupOrchestratorService(
                 config=config,
-                discovery=FakeDiscovery(),
-                resolver=FakeCombinedResolver(db_type="mariadb"),
+                discovery=FakeCombinedDiscovery(db_type="mariadb"),
+                resolver=ContainerMetadataResolver(),
                 database_providers=[FakeMariaProvider(), FakeFilesystemProvider()],
                 remote_storage=LocalDirectoryStorageProvider(storage_root=Path(mounted_dir)),
                 retention=FakeRetention(),

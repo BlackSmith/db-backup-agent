@@ -76,7 +76,7 @@ class DockerDiscoveryAndMetadataResolutionTests(unittest.TestCase):
                 "name": "/postgres-app",
                 "labels": {
                     "backup_agent.enabled": "true",
-                    "backup_agent.type": "postgresql",
+                    "backup_agent.type": "postgresql,filesystem",
                     "backup_agent.pguser": "label_user",
                     "backup_agent.pghost": "label_host",
                     "backup_agent.pgpassword": "label_secret",
@@ -193,7 +193,7 @@ class DockerDiscoveryAndMetadataResolutionTests(unittest.TestCase):
             {
                 "id": "def456",
                 "name": "/mysql-app",
-                "labels": {"backup_agent.enabled": "true"},
+                "labels": {"backup_agent.enabled": "true", "backup_agent.type": "mariadb"},
                 "env": [
                     "MYSQL_USER=root",
                     "MYSQL_HOST=db",
@@ -300,7 +300,7 @@ class DockerDiscoveryAndMetadataResolutionTests(unittest.TestCase):
                 self.assertIn("invalid metadata", str(cm.exception))
                 self.assertIn("port", str(cm.exception))
 
-    def test_resolver_requires_explicit_type_when_metadata_is_ambiguous(self) -> None:
+    def test_resolver_requires_explicit_type_label(self) -> None:
         resolver = ContainerMetadataResolver()
         with self.assertRaises(MetadataResolutionError) as cm:
             resolver.resolve(
@@ -321,7 +321,7 @@ class DockerDiscoveryAndMetadataResolutionTests(unittest.TestCase):
                 }
             )
 
-        self.assertIn("backup_agent.type", str(cm.exception))
+        self.assertIn("missing required backup_agent.type", str(cm.exception))
 
     def test_filesystem_target_resolves_from_explicit_type_and_directories_label(self) -> None:
         resolver = ContainerMetadataResolver()
@@ -344,15 +344,20 @@ class DockerDiscoveryAndMetadataResolutionTests(unittest.TestCase):
         self.assertEqual(target.directories, ["/app/data", "/var/lib/app/uploads"])
         self.assertEqual(target.container_name, "files-app")
 
-    def test_filesystem_target_can_be_inferred_from_directories_label(self) -> None:
+    def test_multi_value_type_keeps_database_target_and_directories_for_expansion(self) -> None:
         resolver = ContainerMetadataResolver()
         target = resolver.resolve(
             {
-                "id": "fs124",
-                "name": "/files-app",
+                "id": "abc123",
+                "name": "/postgres-app",
                 "labels": {
                     "backup_agent.enabled": "true",
-                    "backup_agent.directories": "/srv/assets",
+                    "backup_agent.type": " postgres , filesystem , postgres ",
+                    "backup_agent.user": "app",
+                    "backup_agent.host": "db",
+                    "backup_agent.password": "secret",
+                    "backup_agent.database": "appdb",
+                    "backup_agent.directories": "/app/data",
                 },
                 "env": [],
             }
@@ -360,8 +365,85 @@ class DockerDiscoveryAndMetadataResolutionTests(unittest.TestCase):
 
         self.assertIsNotNone(target)
         assert target is not None
-        self.assertEqual(target.db_type, "filesystem")
-        self.assertEqual(target.directories, ["/srv/assets"])
+        self.assertEqual(target.db_type, "postgresql")
+        self.assertEqual(target.port, 5432)
+        self.assertEqual(target.directories, ["/app/data"])
+
+    def test_conflicting_multi_value_database_types_are_rejected(self) -> None:
+        resolver = ContainerMetadataResolver()
+        with self.assertRaises(MetadataResolutionError) as cm:
+            resolver.resolve(
+                {
+                    "id": "abc123",
+                    "name": "/db-app",
+                    "labels": {
+                        "backup_agent.enabled": "true",
+                        "backup_agent.type": "postgresql,mariadb",
+                        "backup_agent.user": "app",
+                        "backup_agent.host": "db",
+                        "backup_agent.password": "secret",
+                    },
+                    "env": [],
+                }
+            )
+
+        self.assertIn("conflicting backup_agent.type", str(cm.exception))
+
+    def test_directories_require_filesystem_type(self) -> None:
+        resolver = ContainerMetadataResolver()
+        with self.assertRaises(MetadataResolutionError) as cm:
+            resolver.resolve(
+                {
+                    "id": "abc123",
+                    "name": "/postgres-app",
+                    "labels": {
+                        "backup_agent.enabled": "true",
+                        "backup_agent.type": "postgresql",
+                        "backup_agent.user": "app",
+                        "backup_agent.host": "db",
+                        "backup_agent.password": "secret",
+                        "backup_agent.database": "appdb",
+                        "backup_agent.directories": "/app/data",
+                    },
+                    "env": [],
+                }
+            )
+
+        self.assertIn("requires backup_agent.type to include filesystem", str(cm.exception))
+
+    def test_blank_type_is_rejected(self) -> None:
+        resolver = ContainerMetadataResolver()
+        with self.assertRaises(MetadataResolutionError) as cm:
+            resolver.resolve(
+                {
+                    "id": "abc123",
+                    "name": "/postgres-app",
+                    "labels": {
+                        "backup_agent.enabled": "true",
+                        "backup_agent.type": "   ",
+                    },
+                    "env": [],
+                }
+            )
+
+        self.assertIn("missing required backup_agent.type", str(cm.exception))
+
+    def test_directories_without_type_are_rejected(self) -> None:
+        resolver = ContainerMetadataResolver()
+        with self.assertRaises(MetadataResolutionError) as cm:
+            resolver.resolve(
+                {
+                    "id": "fs124",
+                    "name": "/files-app",
+                    "labels": {
+                        "backup_agent.enabled": "true",
+                        "backup_agent.directories": "/srv/assets",
+                    },
+                    "env": [],
+                }
+            )
+
+        self.assertIn("missing required backup_agent.type", str(cm.exception))
 
     def test_parse_database_list(self) -> None:
         self.assertEqual(parse_database_list(None), [])

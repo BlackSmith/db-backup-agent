@@ -37,98 +37,75 @@ class ContainerMetadataResolver(MetadataResolver):
         container_id = _container_id(container)
         container_name = _container_name(container)
 
-        db_type = self._resolve_database_type(labels, env, container_id, container_name)
-        if db_type == "postgresql":
-            return self._resolve_postgresql(container_id, container_name, labels, env)
-        if db_type == "mariadb":
-            return self._resolve_mariadb(container_id, container_name, labels, env)
-        if db_type == "filesystem":
-            return self._resolve_filesystem(container_id, container_name, labels)
+        requested_types = self._resolve_requested_types(labels, container_id, container_name)
+        directories = parse_directory_list(labels.get("backup_agent.directories"))
+        database_types = [requested_type for requested_type in requested_types if requested_type in {"postgresql", "mariadb"}]
+        filesystem_requested = "filesystem" in requested_types
 
-        raise MetadataResolutionError(
-            f"Container {container_name!r} ({container_id}) uses unsupported backup_agent.type {db_type!r}."
-        )
+        if len(database_types) > 1:
+            raise MetadataResolutionError(
+                f"Container {container_name!r} ({container_id}) has conflicting backup_agent.type values {requested_types!r}."
+            )
+        if filesystem_requested and not directories:
+            raise MetadataResolutionError(
+                f"Container {container_name!r} ({container_id}) has invalid metadata: missing directories"
+            )
+        if directories and not filesystem_requested:
+            raise MetadataResolutionError(
+                f"Container {container_name!r} ({container_id}) has invalid metadata: backup_agent.directories requires backup_agent.type to include filesystem"
+            )
 
-    def _resolve_database_type(
+        if database_types:
+            db_type = database_types[0]
+            if db_type == "postgresql":
+                return self._resolve_postgresql(
+                    container_id,
+                    container_name,
+                    labels,
+                    env,
+                    directories=directories if filesystem_requested else [],
+                )
+            return self._resolve_mariadb(
+                container_id,
+                container_name,
+                labels,
+                env,
+                directories=directories if filesystem_requested else [],
+            )
+
+        return self._resolve_filesystem(container_id, container_name, labels, directories)
+
+    def _resolve_requested_types(
         self,
         labels: Mapping[str, str],
-        env: Mapping[str, str],
         container_id: str,
         container_name: str,
-    ) -> str:
-        explicit_type = _first_non_empty(
-            labels.get("backup_agent.type"),
-            env.get("BACKUP_AGENT_TYPE"),
-        )
-        if explicit_type:
-            normalized = explicit_type.strip().lower()
-            if normalized in {"postgresql", "postgres", "pg"}:
-                return "postgresql"
-            if normalized in {"mariadb", "mysql"}:
-                return "mariadb"
-            if normalized in {"filesystem", "files", "directories", "archive"}:
-                return "filesystem"
+    ) -> list[str]:
+        raw_type = labels.get("backup_agent.type")
+        if raw_type is None or not raw_type.strip():
             raise MetadataResolutionError(
-                f"Container {container_name!r} ({container_id}) has unsupported backup_agent.type {explicit_type!r}."
+                f"Container {container_name!r} ({container_id}) is missing required backup_agent.type label."
             )
 
-        postgres_signal = _has_any(
-            labels,
-            env,
-            [
-                "backup_agent.pguser",
-                "backup_agent.pghost",
-                "backup_agent.pgpassword",
-                "backup_agent.pgport",
-                "backup_agent.pgdatabase",
-                "POSTGRES_USER",
-                "POSTGRES_HOST",
-                "POSTGRES_PASSWORD",
-                "POSTGRES_PORT",
-                "POSTGRES_DB",
-                "POSTGRES_DATABASE",
-            ],
-        )
-        mariadb_signal = _has_any(
-            labels,
-            env,
-            [
-                "backup_agent.mariadbuser",
-                "backup_agent.mariadbpassword",
-                "backup_agent.mariadbhost",
-                "backup_agent.mariadbport",
-                "backup_agent.mariadbdatabase",
-                "MARIADB_USER",
-                "MARIADB_PASSWORD",
-                "MARIADB_ROOT_PASSWORD",
-                "MARIADB_HOST",
-                "MARIADB_PORT",
-                "MARIADB_DATABASE",
-                "MYSQL_USER",
-                "MYSQL_PASSWORD",
-                "MYSQL_ROOT_PASSWORD",
-                "MYSQL_HOST",
-                "MYSQL_PORT",
-                "MYSQL_DATABASE",
-            ],
-        )
+        requested_types: list[str] = []
+        for raw_value in raw_type.split(","):
+            value = raw_value.strip().lower()
+            if not value:
+                continue
+            normalized = _normalize_backup_type(value)
+            if normalized is None:
+                raise MetadataResolutionError(
+                    f"Container {container_name!r} ({container_id}) has unsupported backup_agent.type value {raw_value.strip()!r}."
+                )
+            if normalized not in requested_types:
+                requested_types.append(normalized)
 
-        filesystem_signal = bool(parse_directory_list(labels.get("backup_agent.directories")))
-
-        if postgres_signal and mariadb_signal:
+        if not requested_types:
             raise MetadataResolutionError(
-                f"Container {container_name!r} ({container_id}) contains both PostgreSQL and MariaDB metadata; set backup_agent.type explicitly."
+                f"Container {container_name!r} ({container_id}) is missing required backup_agent.type label."
             )
-        if postgres_signal:
-            return "postgresql"
-        if mariadb_signal:
-            return "mariadb"
-        if filesystem_signal:
-            return "filesystem"
 
-        raise MetadataResolutionError(
-            f"Container {container_name!r} ({container_id}) does not declare enough metadata to infer a database type; set backup_agent.type explicitly."
-        )
+        return requested_types
 
     def _resolve_postgresql(
         self,
@@ -136,6 +113,8 @@ class ContainerMetadataResolver(MetadataResolver):
         container_name: str,
         labels: Mapping[str, str],
         env: Mapping[str, str],
+        *,
+        directories: list[str],
     ) -> BackupTarget:
         user = _select_value(labels, env, ["backup_agent.user", "backup_agent.pguser"], ["POSTGRES_USER"])
         host = _select_value(labels, env, ["backup_agent.host", "backup_agent.pghost"], ["POSTGRES_HOST"])
@@ -159,7 +138,6 @@ class ContainerMetadataResolver(MetadataResolver):
             ["POSTGRES_DB", "POSTGRES_DATABASE"],
         )
         databases = parse_database_list(database_value[0] if database_value else None)
-        directories = parse_directory_list(labels.get("backup_agent.directories"))
         return self._build_target(
             container_id=container_id,
             container_name=container_name,
@@ -181,6 +159,8 @@ class ContainerMetadataResolver(MetadataResolver):
         container_name: str,
         labels: Mapping[str, str],
         env: Mapping[str, str],
+        *,
+        directories: list[str],
     ) -> BackupTarget:
         user = _select_value(
             labels,
@@ -219,7 +199,6 @@ class ContainerMetadataResolver(MetadataResolver):
             ["MARIADB_DATABASE", "MYSQL_DATABASE"],
         )
         databases = parse_database_list(database_value[0] if database_value else None)
-        directories = parse_directory_list(labels.get("backup_agent.directories"))
         return self._build_target(
             container_id=container_id,
             container_name=container_name,
@@ -240,8 +219,8 @@ class ContainerMetadataResolver(MetadataResolver):
         container_id: str,
         container_name: str,
         labels: Mapping[str, str],
+        directories: list[str],
     ) -> BackupTarget:
-        directories = parse_directory_list(labels.get("backup_agent.directories"))
         if not directories:
             raise MetadataResolutionError(
                 f"Container {container_name!r} ({container_id}) has invalid metadata: missing directories"
@@ -362,10 +341,6 @@ def _normalize_env(values: Any) -> dict[str, str]:
     return env_map
 
 
-def _has_any(labels: Mapping[str, str], env: Mapping[str, str], keys: list[str]) -> bool:
-    return any(_first_non_empty(labels.get(key), env.get(key)) for key in keys)
-
-
 def _select_value(
     labels: Mapping[str, str], env: Mapping[str, str], label_keys: list[str], env_keys: list[str]
 ) -> tuple[str, str] | None:
@@ -428,14 +403,14 @@ def _parse_port(
         return 0
 
 
-def _first_non_empty(*values: Any) -> str:
-    for value in values:
-        if value is None:
-            continue
-        text = str(value).strip()
-        if text:
-            return text
-    return ""
+def _normalize_backup_type(value: str) -> str | None:
+    if value in {"postgresql", "postgres", "pg"}:
+        return "postgresql"
+    if value in {"mariadb", "mysql"}:
+        return "mariadb"
+    if value in {"filesystem", "files", "directories", "archive"}:
+        return "filesystem"
+    return None
 
 
 def _container_id(container: Mapping[str, Any]) -> str:

@@ -45,13 +45,18 @@ A container is enabled but still not backed up.
 
 ### Common causes
 
-- missing `backup_agent.type` and no inferrable database metadata
-- conflicting PostgreSQL and MariaDB metadata in the same container
+- missing `backup_agent.type`
+- blank or unsupported `backup_agent.type`
+- conflicting `backup_agent.type` values such as `postgresql,mariadb`
+- `backup_agent.directories` present without `filesystem` in `backup_agent.type`
 - missing user/host/password metadata
 - invalid explicit port value
 
 ### What to check
 
+- the container has an explicit `backup_agent.type` label
+- comma-separated `backup_agent.type` values are valid and compatible
+- `backup_agent.directories` is paired with `filesystem` in `backup_agent.type`
 - labels on the container
 - container environment variables
 - whether generic labels conflict with legacy labels
