@@ -37,9 +37,11 @@ class SimulatedRsyncExecutor:
         if "--include=*/" in command and "--include=manifest.json" in command:
             self._copy_remote_inventory(command)
             return
-        files_from = next((part.split("=", 1)[1] for part in command if part.startswith("--files-from=")), None)
-        if files_from is not None and "--delete-missing-args" in command:
-            self._delete_remote_runs(Path(files_from))
+        if "--delete" in command:
+            protected_run_ids = [
+                part.split(" ", 1)[1] for part in command if part.startswith("--filter=P ")
+            ]
+            self._delete_remote_runs(protected_run_ids)
             return
         self._copy_uploaded_run(command)
 
@@ -54,11 +56,12 @@ class SimulatedRsyncExecutor:
             target_run_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(manifest, target_run_dir / "manifest.json")
 
-    def _delete_remote_runs(self, files_from: Path) -> None:
-        for run_id in files_from.read_text(encoding="utf-8").splitlines():
-            if not run_id.strip():
+    def _delete_remote_runs(self, protected_run_ids: list[str]) -> None:
+        protected = {run_id.strip().rstrip("/").replace("/***", "") for run_id in protected_run_ids}
+        for run_dir in list(self.remote_root.iterdir()):
+            if not run_dir.is_dir() or run_dir.name in protected:
                 continue
-            shutil.rmtree(self.remote_root / run_id.strip(), ignore_errors=True)
+            shutil.rmtree(run_dir, ignore_errors=True)
 
     def _copy_uploaded_run(self, command: list[str]) -> None:
         if len(command) < 2:
@@ -175,15 +178,20 @@ class RsyncSyncAndRetentionTests(unittest.TestCase):
                 executor=executor,
             )
 
-            result = provider.delete_remote_runs(["20260601T090000Z-aaa11111"])
+            result = provider.delete_remote_runs(
+                ["20260601T090000Z-aaa11111"],
+                protected_run_ids=["20260609T090000Z-bbb22222"],
+            )
 
             self.assertEqual(result.status, "success")
             self.assertFalse(old_run.exists())
             self.assertTrue(new_run.exists())
             self.assertEqual(executor.commands[0][0], "rsync")
-            self.assertIn("--files-from=", " ".join(executor.commands[0]))
-            self.assertIn("--delete-missing-args", executor.commands[0])
+            self.assertIn("--delete", executor.commands[0])
+            self.assertIn("--delete-excluded", executor.commands[0])
+            self.assertIn("--exclude=*", executor.commands[0])
             self.assertIn("--force", executor.commands[0])
+            self.assertIn("--filter=P 20260609T090000Z-bbb22222/", executor.commands[0])
 
     def test_retention_plan_marks_expired_and_retained_runs(self) -> None:
         fixed_now = datetime(2026, 6, 10, 12, 0, tzinfo=timezone.utc)
@@ -265,7 +273,10 @@ class RsyncSyncAndRetentionTests(unittest.TestCase):
             self.assertTrue(new_run.exists())
             self.assertEqual(executor.commands[0][0], "rsync")
             self.assertIn("--include=*/", executor.commands[0])
-            self.assertIn("--delete-missing-args", executor.commands[1])
+            self.assertIn("--delete", executor.commands[1])
+            self.assertIn("--delete-excluded", executor.commands[1])
+            self.assertIn("--exclude=*", executor.commands[1])
+            self.assertIn("--filter=P 20260609T090000Z-bbb22222/", executor.commands[1])
             self.assertEqual(result.remote_destination, "rsync://backup@nas.local/backups")
 
 

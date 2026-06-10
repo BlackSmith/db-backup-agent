@@ -90,7 +90,10 @@ class RsyncStorageProvider(RemoteStorageProvider):
                 stderr=plan.inventory.stderr if plan.inventory is not None else "",
             )
 
-        delete_result = self.delete_remote_runs(expired_run_ids)
+        delete_result = self.delete_remote_runs(
+            expired_run_ids,
+            protected_run_ids=[manifest.run_id for manifest in plan.retained_manifests],
+        )
         return self._to_cleanup_result(local_path, destination, delete_result)
 
     def fetch_remote_manifests(self) -> RemoteManifestInventoryResult:
@@ -199,21 +202,25 @@ class RsyncStorageProvider(RemoteStorageProvider):
             inventory=inventory,
         )
 
-    def delete_remote_runs(self, run_ids: list[str]) -> RemoteDeleteResult:
+    def delete_remote_runs(
+        self,
+        run_ids: list[str],
+        protected_run_ids: list[str] | None = None,
+    ) -> RemoteDeleteResult:
         remote_destination = self._build_remote_root_destination()
         if not run_ids:
             return RemoteDeleteResult(status="success", remote_destination=remote_destination)
 
+        protected_run_ids = protected_run_ids or []
         with TemporaryDirectory(prefix="rsync-delete-") as temp_dir:
             delete_root = Path(temp_dir) / "delete-root"
             delete_root.mkdir(parents=True, exist_ok=True)
-            files_from = Path(temp_dir) / "expired-runs.txt"
-            files_from.write_text("\n".join(run_ids) + "\n", encoding="utf-8")
-            command = self._build_delete_command(delete_root, files_from)
+            command = self._build_delete_command(delete_root, protected_run_ids)
             logger.debug(
-                "rsync delete start destination=%s run_ids=%s command=%s",
+                "rsync delete start destination=%s run_ids=%s protected_run_ids=%s command=%s",
                 remote_destination,
                 run_ids,
+                protected_run_ids,
                 " ".join(command),
             )
             result = self._run(command)
@@ -275,21 +282,26 @@ class RsyncStorageProvider(RemoteStorageProvider):
         )
         return command
 
-    def _build_delete_command(self, delete_root: Path, files_from: Path) -> list[str]:
+    def _build_delete_command(self, delete_root: Path, protected_run_ids: list[str]) -> list[str]:
         command = [
             "rsync",
-            "-r",
-            f"--files-from={files_from}",
-            "--ignore-missing-args",
-            "--delete-missing-args",
+            "-a",
+            "--delete",
+            "--delete-excluded",
+            "--exclude=*",
             "--force",
+        ]
+        for run_id in protected_run_ids:
+            command.append(f"--filter=P {run_id}/")
+            command.append(f"--filter=P {run_id}/***")
+        command.extend([
             f"{str(delete_root).rstrip('/')}/",
             self._build_remote_root_destination(),
-        ]
+        ])
         logger.debug(
-            "rsync delete command built delete_root=%s files_from=%s command=%s",
+            "rsync delete command built delete_root=%s protected_run_ids=%s command=%s",
             delete_root,
-            files_from,
+            protected_run_ids,
             " ".join(command),
         )
         return command
