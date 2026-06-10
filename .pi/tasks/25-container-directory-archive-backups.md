@@ -22,11 +22,7 @@ The selected directories must be declared through container labels, copied into 
 - Broad redesign of the current storage abstraction.
 
 ## Recommended label model
-Use the existing `backup_agent.type` override with a new filesystem/archive type, for example:
-
-- `backup_agent.type=filesystem`
-
-Add a new label that lists the directories to back up inside the container:
+Add a label that lists the directories to back up inside the container:
 
 - `backup_agent.directories=/app/data,/var/lib/app/uploads`
 
@@ -35,7 +31,9 @@ Add a new label that lists the directories to back up inside the container:
 - whitespace should be trimmed
 - empty entries should be ignored
 - the label should be sufficient to express multiple directories
-- explicit `backup_agent.type=filesystem` should override any type inference when present
+- `backup_agent.directories` alone should be enough to activate filesystem/archive backup behavior
+- when `backup_agent.directories` is combined with database metadata, the container should produce both database artifacts and directory archive artifacts in the same run
+- explicit `backup_agent.type=filesystem` may remain supported as a filesystem-only override, but it should not be required for normal directory backup use
 
 ## Recommended archive model
 - copy the selected container directories into a temporary local workspace first
@@ -60,11 +58,12 @@ Likely changes will include:
 - Keep temporary source copies confined to local staging and clean them up on success.
 
 ## Acceptance criteria
-- A container can opt into filesystem/archive backups through labels.
+- A container can opt into filesystem/archive backups through `backup_agent.directories`.
 - One or more directories can be specified through labels.
 - The selected directories are copied into temporary staging and archived successfully.
 - The resulting archive is published through the configured storage backend(s).
-- Database backup flows remain unchanged.
+- When database metadata and `backup_agent.directories` are both present on the same container, both backup flows run successfully in the same run.
+- Database-only flows remain unchanged when `backup_agent.directories` is absent.
 - Focused tests pass.
 - Full suite passes.
 

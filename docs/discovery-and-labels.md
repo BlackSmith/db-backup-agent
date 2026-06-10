@@ -185,6 +185,7 @@ Behavior:
 - whitespace is trimmed
 - empty entries are ignored
 - the selected directories are copied into local staging, archived, and then published through the configured storage backend set
+- when a container also declares database metadata, the resolver keeps the database target and adds a separate filesystem/archive target for the same container
 
 If `backup_agent.type` is omitted but `backup_agent.directories` is present, the resolver treats the target as a filesystem/archive backup target.
 

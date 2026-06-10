@@ -26,8 +26,7 @@ Before implementation, read:
 ## Expected behavior
 
 ### Configuration / labels
-Support a filesystem/archive target selected by labels, for example:
-- `backup_agent.type=filesystem`
+Support directory archive backups selected by labels, for example:
 - `backup_agent.directories=/app/data,/var/lib/app/uploads`
 
 Recommended semantics:
@@ -35,14 +34,17 @@ Recommended semantics:
 - whitespace should be trimmed
 - empty entries should be ignored
 - the label should support multiple directories
-- explicit `backup_agent.type=filesystem` should take precedence when present
+- `backup_agent.directories` alone should be enough to activate directory archive backup behavior
+- when combined with PostgreSQL or MariaDB metadata on the same container, both the database backup and directory archive backup should run in the same run
+- explicit `backup_agent.type=filesystem` may remain supported as a filesystem-only override, but it should not be required for the normal combined case
 
 ### Backup behavior
 - copy the selected directories from the target container into temporary local staging
 - archive the copied content into a single artifact, preferably `tar.gz`
 - preserve the selected directory structure inside the archive
 - publish the archive through the existing storage backend flow
-- keep database backup behavior unchanged
+- keep database backup behavior unchanged when `backup_agent.directories` is absent
+- allow one container to produce both database artifacts and a directory archive artifact when both label sets are present
 
 ### Retention / publish flow
 - the new archive backup should follow the same durable publish pattern as other non-rsync backends
@@ -57,12 +59,13 @@ Recommended semantics:
 - Do not log file contents or secrets.
 
 ## Acceptance checklist
-- [ ] Container directory archive backups can be selected via labels
+- [ ] Container directory archive backups can be selected via `backup_agent.directories`
 - [ ] Multiple container directories can be specified
 - [ ] Selected directories are copied into temporary staging
 - [ ] An archive artifact is produced
 - [ ] The archive is published through the existing storage pipeline
-- [ ] Existing database backup behavior remains intact
+- [ ] One container can produce both database and directory archive artifacts in the same run
+- [ ] Existing database-only behavior remains intact when directory labels are absent
 - [ ] Focused tests pass
 - [ ] Full suite passes
 

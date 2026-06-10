@@ -72,13 +72,30 @@ class FakeProvider:
 
     def backup(self, target, output_dir):
         from backup_agent.domain.artifact import BackupArtifact
-        from backup_agent.providers.databases.base import BackupProviderError, BackupProviderResult
+        from backup_agent.providers.databases.base import BackupProviderResult
 
         artifact_path = output_dir / "postgresql" / "postgres-app" / "appdb.dump"
         artifact_path.parent.mkdir(parents=True, exist_ok=True)
         artifact_path.write_text("backup", encoding="utf-8")
         artifact = BackupArtifact(target=target, database="appdb", path=artifact_path, size=6, format="postgresql-custom")
         return BackupProviderResult(provider="postgresql", target=target, status="success", artifacts=[artifact], errors=[])
+
+
+class FakeMariaProvider:
+    db_type = "mariadb"
+
+    def supports(self, target):
+        return target.db_type == self.db_type
+
+    def backup(self, target, output_dir):
+        from backup_agent.domain.artifact import BackupArtifact
+        from backup_agent.providers.databases.base import BackupProviderResult
+
+        artifact_path = output_dir / "mariadb" / target.container_name / "appdb.sql"
+        artifact_path.parent.mkdir(parents=True, exist_ok=True)
+        artifact_path.write_text("backup", encoding="utf-8")
+        artifact = BackupArtifact(target=target, database="appdb", path=artifact_path, size=6, format="mariadb-sql")
+        return BackupProviderResult(provider="mariadb", target=target, status="success", artifacts=[artifact], errors=[])
 
 
 class FakeFilesystemDiscovery:
@@ -122,11 +139,50 @@ class FakeFilesystemProvider:
         from backup_agent.domain.artifact import BackupArtifact
         from backup_agent.providers.databases.base import BackupProviderResult
 
-        artifact_path = output_dir / "filesystem" / "files-app" / "directories.tar.gz"
+        artifact_path = output_dir / "filesystem" / target.container_name / "directories.tar.gz"
         artifact_path.parent.mkdir(parents=True, exist_ok=True)
         artifact_path.write_bytes(b"archive")
         artifact = BackupArtifact(target=target, database=None, path=artifact_path, size=7, format="filesystem-tar-gzip")
         return BackupProviderResult(provider="filesystem", target=target, status="success", artifacts=[artifact], errors=[])
+
+
+class FakeCombinedResolver:
+    def __init__(self, db_type: str = "postgresql") -> None:
+        self.db_type = db_type
+
+    def resolve(self, container):
+        from backup_agent.domain.backup_target import BackupTarget
+
+        if self.db_type == "mariadb":
+            return BackupTarget(
+                container_id=container["id"],
+                container_name=container["name"],
+                db_type="mariadb",
+                host="db",
+                port=3306,
+                user="root",
+                password="secret",
+                password_ref="label:backup_agent.mariadbpassword",
+                databases=["appdb"],
+                directories=["/app/data"],
+                all_databases=False,
+                labels=container["labels"],
+            )
+
+        return BackupTarget(
+            container_id=container["id"],
+            container_name=container["name"],
+            db_type="postgresql",
+            host="db",
+            port=5432,
+            user="app",
+            password="secret",
+            password_ref="label:backup_agent.pgpassword",
+            databases=["appdb"],
+            directories=["/app/data"],
+            all_databases=False,
+            labels=container["labels"],
+        )
 
 
 class FakeStorage:
@@ -255,6 +311,56 @@ class HealthAndOrchestratorTests(unittest.TestCase):
             self.assertEqual(run.status, "success")
             self.assertTrue((Path(mounted_dir) / "runs" / run.run_id / "filesystem" / "files-app" / "directories.tar.gz").exists())
             self.assertEqual(run.targets[0].directories, ["/app/data", "/var/lib/app/uploads"])
+
+    def test_orchestrator_can_back_up_database_and_directories_for_one_container(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as mounted_dir:
+            config = AppConfig(
+                backup_time=datetime.strptime("02:00", "%H:%M").time(),
+                backup_retention_days=7,
+                backup_local_storage=Path(mounted_dir),
+                local_backup_dir=Path(temp_dir),
+            )
+            orchestrator = BackupOrchestratorService(
+                config=config,
+                discovery=FakeDiscovery(),
+                resolver=FakeCombinedResolver(),
+                database_providers=[FakeProvider(), FakeFilesystemProvider()],
+                remote_storage=LocalDirectoryStorageProvider(storage_root=Path(mounted_dir)),
+                retention=FakeRetention(),
+            )
+            run = orchestrator.run_once()
+
+            self.assertEqual(run.status, "success")
+            self.assertEqual(len(run.targets), 2)
+            self.assertEqual({target.db_type for target in run.targets}, {"postgresql", "filesystem"})
+            published_run = Path(mounted_dir) / "runs" / run.run_id
+            self.assertTrue((published_run / "postgresql" / "postgres-app" / "appdb.dump").exists())
+            self.assertTrue((published_run / "filesystem" / "postgres-app" / "directories.tar.gz").exists())
+
+    def test_orchestrator_can_back_up_mariadb_and_directories_for_one_container(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as mounted_dir:
+            config = AppConfig(
+                backup_time=datetime.strptime("02:00", "%H:%M").time(),
+                backup_retention_days=7,
+                backup_local_storage=Path(mounted_dir),
+                local_backup_dir=Path(temp_dir),
+            )
+            orchestrator = BackupOrchestratorService(
+                config=config,
+                discovery=FakeDiscovery(),
+                resolver=FakeCombinedResolver(db_type="mariadb"),
+                database_providers=[FakeMariaProvider(), FakeFilesystemProvider()],
+                remote_storage=LocalDirectoryStorageProvider(storage_root=Path(mounted_dir)),
+                retention=FakeRetention(),
+            )
+            run = orchestrator.run_once()
+
+            self.assertEqual(run.status, "success")
+            self.assertEqual(len(run.targets), 2)
+            self.assertEqual({target.db_type for target in run.targets}, {"mariadb", "filesystem"})
+            published_run = Path(mounted_dir) / "runs" / run.run_id
+            self.assertTrue((published_run / "mariadb" / "postgres-app" / "appdb.sql").exists())
+            self.assertTrue((published_run / "filesystem" / "postgres-app" / "directories.tar.gz").exists())
 
     def test_orchestrator_cleans_up_staging_when_only_local_storage_is_configured(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as mounted_dir:

@@ -828,7 +828,7 @@ This distinction should be explicit in the implementation to avoid incorrect ful
 - restore workflow
 - backup encryption
 - notification hooks
-- label-driven archive backups for arbitrary container directories
+- label-driven archive backups for arbitrary container directories, including composition with database backups on the same container
 
 ---
 

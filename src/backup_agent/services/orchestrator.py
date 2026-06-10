@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Iterable
 
@@ -347,9 +347,24 @@ class BackupOrchestratorService:
                 continue
             if target is None:
                 continue
-            run.targets.append(target)
-            targets.append(target)
+            expanded_targets = self._expand_target(target)
+            run.targets.extend(expanded_targets)
+            targets.extend(expanded_targets)
         return targets
+
+    def _expand_target(self, target):
+        if target.db_type == "filesystem" or not target.directories:
+            return [target]
+        database_target = replace(target, directories=[])
+        filesystem_target = replace(
+            target,
+            db_type="filesystem",
+            host=target.container_name,
+            port=0,
+            databases=[],
+            all_databases=False,
+        )
+        return [database_target, filesystem_target]
 
     def _backup_targets(self, run: BackupRun, layout: RunLayout, targets: list) -> None:
         for target in targets:

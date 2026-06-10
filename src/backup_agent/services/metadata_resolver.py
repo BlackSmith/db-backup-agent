@@ -159,6 +159,7 @@ class ContainerMetadataResolver(MetadataResolver):
             ["POSTGRES_DB", "POSTGRES_DATABASE"],
         )
         databases = parse_database_list(database_value[0] if database_value else None)
+        directories = parse_directory_list(labels.get("backup_agent.directories"))
         return self._build_target(
             container_id=container_id,
             container_name=container_name,
@@ -171,6 +172,7 @@ class ContainerMetadataResolver(MetadataResolver):
             password_value=password_value,
             password_ref=password_ref,
             databases=databases,
+            directories=directories,
         )
 
     def _resolve_mariadb(
@@ -217,6 +219,7 @@ class ContainerMetadataResolver(MetadataResolver):
             ["MARIADB_DATABASE", "MYSQL_DATABASE"],
         )
         databases = parse_database_list(database_value[0] if database_value else None)
+        directories = parse_directory_list(labels.get("backup_agent.directories"))
         return self._build_target(
             container_id=container_id,
             container_name=container_name,
@@ -229,6 +232,7 @@ class ContainerMetadataResolver(MetadataResolver):
             password_value=password_value,
             password_ref=password_ref,
             databases=databases,
+            directories=directories,
         )
 
     def _resolve_filesystem(
@@ -266,6 +270,7 @@ class ContainerMetadataResolver(MetadataResolver):
         password_value: tuple[str, str] | None,
         password_ref: tuple[str, str] | None,
         databases: list[str],
+        directories: list[str],
     ) -> BackupTarget:
         missing: list[str] = []
         resolved_user = _require_value(user, "user", container_name, container_id, missing)
@@ -306,6 +311,7 @@ class ContainerMetadataResolver(MetadataResolver):
             password=resolved_password,
             password_ref=resolved_password_ref,
             databases=databases,
+            directories=directories,
             all_databases=not databases,
             labels=dict(labels),
         )

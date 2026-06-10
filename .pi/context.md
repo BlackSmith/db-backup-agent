@@ -96,7 +96,7 @@ Implementation notes for each task were written to:
 - Current rsync retention still derives the remote deletion set from transient local staging state; this is unsafe for ransomware or staging-loss scenarios and should be replaced by remote-manifest-based retention.
 - Restore workflows, encryption, notifications, and additional storage backends remain future work.
 - FTP/FTPS storage support is implemented; future work should validate it against real server deployments and harden any protocol-specific edge cases.
-- A new follow-up task has been shaped for label-driven container directory archive backups.
+- A new follow-up task has been shaped for label-driven container directory archive backups, with `backup_agent.directories` intended to work both standalone and together with database metadata on the same container.
 
 ## Recommended next steps
 
@@ -111,6 +111,6 @@ If the project moves into phase 2, the most valuable follow-up areas are:
 7. adding an HTTP health/metrics endpoint if operationally useful
 8. redesign rsync retention so it inventories remote manifests, deletes only expired remote runs, and never re-uploads retained manifests during cleanup
 9. validate FTP/FTPS storage publishing against real-world server behavior and refine any protocol trade-offs
-10. implement label-driven container directory archive backups for arbitrary paths inside a target container
+10. implement label-driven container directory archive backups for arbitrary paths inside a target container, with `backup_agent.directories` working both standalone and alongside database backups on the same container
 11. validating the Docker image build in CI
 12. preparing restore workflows and checksum support

@@ -82,6 +82,7 @@ class DockerDiscoveryAndMetadataResolutionTests(unittest.TestCase):
                     "backup_agent.pgpassword": "label_secret",
                     "backup_agent.pgport": "5433",
                     "backup_agent.pgdatabase": "db1, db2",
+                    "backup_agent.directories": "/var/lib/postgresql/data",
                 },
                 "env": [
                     "POSTGRES_USER=env_user",
@@ -101,6 +102,7 @@ class DockerDiscoveryAndMetadataResolutionTests(unittest.TestCase):
         self.assertEqual(target.port, 5433)
         self.assertEqual(target.password_ref, "label:backup_agent.pgpassword")
         self.assertEqual(target.databases, ["db1", "db2"])
+        self.assertEqual(target.directories, ["/var/lib/postgresql/data"])
         self.assertFalse(target.all_databases)
 
     def test_generic_labels_are_supported(self) -> None:
